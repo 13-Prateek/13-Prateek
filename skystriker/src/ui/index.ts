@@ -299,6 +299,9 @@ export function createHud(root: HTMLElement): Hud {
       timer.classList.toggle('sd', s.suddenDeath);
       timer.classList.toggle('urgent', !s.suddenDeath && secs <= TIMER_URGENT);
       roundSmall.textContent = isFinalRound(s) ? 'FINAL ROUND' : `ROUND ${s.round}`;
+    } else if (s.phase === 'roundOver' && !s.suddenDeath && !s.fighters.some((f) => f.hp <= 0) && timer.textContent !== '0') {
+      timer.textContent = '0'; // the round ran out of time: show the clock at zero, not the last whole second
+      timerKey = '';
     }
 
     // Panels
