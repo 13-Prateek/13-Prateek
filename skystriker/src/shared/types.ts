@@ -123,6 +123,8 @@ export interface BallState {
   heldBy: PlayerId | null;
   /** Ticks the ball has been held (auto pop-loose at TRAP_MAX_TICKS). */
   heldTicks: number;
+  /** (sim-internal, added by sim) Ticks left in which a fresh kick flies without drag. */
+  cruise?: number;
 }
 
 export type MatchPhase = 'countdown' | 'playing' | 'roundOver' | 'matchOver';

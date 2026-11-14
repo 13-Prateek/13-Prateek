@@ -1,6 +1,6 @@
 /** Ball physics: drag, spin curve, sub-stepped integration, wall bounces, live → neutral. */
 import {
-  BALL_DRAG, BALL_LIVE_MIN_SPEED, BALL_MAX_SPEED, BALL_MAX_SUBSTEPS, BALL_RADIUS, BALL_WALL_RESTITUTION,
+  BALL_DRAG, BALL_LIVE_MIN_SPEED, BALL_NEUTRAL_DRAG, BALL_MAX_SPEED, BALL_MAX_SUBSTEPS, BALL_RADIUS, BALL_WALL_RESTITUTION,
   BALL_WALL_SPIN_KEEP, BOUNCE_EVENT_MIN_SPEED, SIM_DT, SPIN_DECAY, SUDDEN_DEATH_BALL_MULT,
 } from '../shared/constants';
 import type { GameEvent, MatchState, Vec2 } from '../shared/types';
@@ -18,8 +18,13 @@ export const maxBallSpeed = (state: MatchState): number =>
 export function integrateBall(state: MatchState, events: GameEvent[], onSubstep: () => void): void {
   const b = state.ball;
   if (b.heldBy !== null) return;
-  const drag = Math.exp(-BALL_DRAG * SIM_DT);
-  b.vel.x *= drag; b.vel.y *= drag;
+  // Fresh kicks cruise at full speed for BALL_CRUISE_TICKS, then drag takes over.
+  if ((b.cruise ?? 0) > 0) {
+    b.cruise = (b.cruise ?? 0) - 1;
+  } else {
+    const drag = Math.exp(-(b.mode === 'neutral' ? BALL_NEUTRAL_DRAG : BALL_DRAG) * SIM_DT);
+    b.vel.x *= drag; b.vel.y *= drag;
+  }
   b.spin *= Math.exp(-SPIN_DECAY * SIM_DT);
   if (Math.abs(b.spin) < 1e-4) b.spin = 0;
   let speed = Math.hypot(b.vel.x, b.vel.y);

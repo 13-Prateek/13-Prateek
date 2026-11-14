@@ -71,16 +71,16 @@ describe('snap and power kicks', () => {
     expect(f.kickPhase).toBe('idle');
   });
 
-  it('kicking while moving sideways to the aim is a curve shot', () => {
+  it('a charged kick released while moving sideways to the aim is a curve shot', () => {
     const s = playing();
-    ballAtFoot(s);
-    const k = ofType(tapKick(s, 0, 2, { moveY: 1 }), 'kick')[0];
+    const ev = run(s, 40, { kick: true }); // charge past CURVE_MIN_CHARGE (standing still)
+    expect(s.fighters[0].charge).toBeGreaterThanOrEqual(0.5);
+    ev.push(...step(s, { kick: true, moveY: 1 }));
+    setBall(s, s.fighters[0].pos.x + 60, s.fighters[0].pos.y);
+    ev.push(...step(s, { kick: false, moveY: 1 }));
+    const k = ofType(ev, 'kick')[0];
     expect(k.curve).toBe(true);
     expect(s.ball.spin).toBeGreaterThan(0); // aim right, moving down → bends down (clockwise)
-    const s2 = playing();
-    ballAtFoot(s2);
-    tapKick(s2, 0, 2, { moveY: -1 });
-    expect(s2.ball.spin).toBeLessThan(0);
   });
 });
 

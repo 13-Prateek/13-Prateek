@@ -14,7 +14,7 @@ import { elementAdvantage } from '../shared/heroes';
 import type { FighterState, GameEvent, InputFrame, MatchState, PlayerId } from '../shared/types';
 import { lerp, norm } from '../shared/vec';
 import { footTouches, isPerfect, kickBall, releaseBall } from './kick';
-import { addHitstop, bodyOverlap, callout, copy, dangerRaw, gainAura, heroOf, isEnemyLive, moveVec } from './util';
+import { addHitstop, bodyOverlap, callout, copy, dangerRaw, gainAura, heroOf, isEnemyLive, kickPower, moveVec } from './util';
 
 export interface TickCtx {
   state: MatchState;
@@ -85,7 +85,7 @@ function hit(ctx: TickCtx, victim: FighterState): void {
   const n = norm({ x: b.pos.x - victim.pos.x, y: b.pos.y - victim.pos.y });
   const contact = { x: victim.pos.x + n.x * FIGHTER_BODY_RADIUS, y: victim.pos.y + n.y * FIGHTER_BODY_RADIUS };
   const knockDir = norm(b.vel);
-  const knock = lerp(HIT_KNOCKBACK_MIN, HIT_KNOCKBACK, Math.min(1, dangerRaw(speed)));
+  const knock = lerp(HIT_KNOCKBACK_MIN, HIT_KNOCKBACK, kickPower(speed)); // by ball speed, not the damage curve
 
   // Ball rebounds off the victim and stays live (still the attacker's).
   const rvx = b.vel.x - victim.vel.x, rvy = b.vel.y - victim.vel.y;
@@ -96,6 +96,8 @@ function hit(ctx: TickCtx, victim: FighterState): void {
   }
   const out = FIGHTER_BODY_RADIUS + b.radius + 0.5;
   b.pos = { x: victim.pos.x + n.x * out, y: victim.pos.y + n.y * out };
+  b.spin = 0; // the rebound flies straight
+  b.cruise = 0;
 
   // Victim: knockback along the ball's travel, hitstun, everything cancelled.
   victim.vel = { x: knockDir.x * knock, y: knockDir.y * knock };
@@ -174,6 +176,7 @@ function clash(ctx: TickCtx): void {
   b.element = null;
   b.spin = 0;
   b.bounces = 0;
+  b.cruise = 0;
   if (wasLive) events.push({ type: 'ballNeutral', pos: copy(b.pos) });
 }
 

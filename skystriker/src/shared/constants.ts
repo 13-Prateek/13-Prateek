@@ -38,17 +38,24 @@ export const KICK_ACTIVE_TICKS = 6; // foot hitbox live after the kick button is
 export const KICK_RECOVERY_TICKS = 10; // after a whiff or a connected kick, before the next kick
 export const KICK_CHARGE_START = 8; // held this many ticks before it counts as charging
 export const KICK_CHARGE_FULL = sec(1.0); // held ticks for a full charge
-export const SNAP_KICK_SPEED = 900;
-export const POWER_KICK_MAX_SPEED = 1700;
+export const SNAP_KICK_SPEED = 1050; // tap kick (playtest: 900 felt slow)
+export const POWER_KICK_MAX_SPEED = 1900; // full-charge kick
 /**
  * Perfect return: ticks from the kick going active (button released) to the moment the
  * enemy ball WOULD have hit the body (time-to-impact). Release within this window = PERFECT.
  */
 export const PERFECT_WINDOW = 6;
 export const PERFECT_SPEED_MULT = 1.5;
-export const CURVE_SPIN = 1.8; // rad/s the ball's path turns right after a curve shot (× hero.control)
+/**
+ * Curve shots are deliberate: only a kick charged to at least CURVE_MIN_CHARGE, released while
+ * moving sideways to the aim, curves. Snap kicks always fly straight where you aim.
+ */
+export const CURVE_MIN_CHARGE = 0.5;
 export const CURVE_MIN_MOVE = 0.3; // move-stick length needed for a curve shot
 export const CURVE_MIN_CROSS = 0.45; // |cross(aim, moveDir)| needed: "moving sideways to the aim"
+export const SPIN_DECAY = 1.4; // per second: how quickly a curve's bend is used up
+export const CURVE_BEND = 0.52; // radians (~30°): TOTAL turn of a curve shot over its whole flight (× hero.control)
+export const CURVE_SPIN = CURVE_BEND * SPIN_DECAY; // initial spin (rad/s) that adds up to CURVE_BEND as it decays
 export const CLASH_MIN_CHARGE = 0.25; // snap kicks count as this much charge in a clash
 export const CLASH_POP_SPEED = 520; // tied clash: ball pops straight up at this speed
 
@@ -62,13 +69,14 @@ export const TRAP_POP_SPREAD = 0.9; // radians of random spread on the forced po
 
 /* Ball */
 export const BALL_RADIUS = 18;
-export const BALL_DRAG = 0.55; // per second
+export const BALL_DRAG = 0.4; // per second, exponential (applies after the cruise)
+export const BALL_CRUISE_TICKS = sec(0.25); // a kicked ball keeps its full speed this long before drag starts
+export const BALL_NEUTRAL_DRAG = 1.0; // per second: a harmless (neutral) ball settles instead of drifting into corners
 export const BALL_WALL_RESTITUTION = 0.9;
 export const BALL_WALL_SPIN_KEEP = 0.6; // spin kept after a wall bounce
-export const BALL_LIVE_MIN_SPEED = 420; // below this, a live ball goes neutral
+export const BALL_LIVE_MIN_SPEED = 480; // below this, a live ball goes neutral (harmless, white)
 export const BALL_MAX_SPEED = 2600;
 export const BALL_MAX_SUBSTEPS = 12; // movement split so a fast ball can't tunnel
-export const SPIN_DECAY = 1.4; // per second
 export const BUMP_RESTITUTION = 0.3; // body bump bounciness (neutral ball, or your own live ball)
 export const BUMP_EVENT_MIN_SPEED = 150; // only emit `bump` events above this closing speed
 export const BOUNCE_EVENT_MIN_SPEED = 60; // only emit `bounce` events above this impact speed
@@ -76,8 +84,15 @@ export const HIT_BALL_RESTITUTION = 0.55; // ball rebounds off a fighter it hits
 
 /* Damage */
 export const MAX_HP = 100;
-export const DAMAGE_MIN = 4; // at BALL_LIVE_MIN_SPEED
-export const DAMAGE_MAX = 16; // at POWER_KICK_MAX_SPEED (before bonuses); keeps rising above it (perfect returns)
+export const DAMAGE_MIN = 4; // at or below DAMAGE_MIN_SPEED (any live ball does at least this)
+export const DAMAGE_MAX = 16; // at DAMAGE_MAX_SPEED (before bonuses); keeps rising above it (perfect returns)
+/**
+ * Ball speeds the damage line runs between. Tuned (bot-vs-bot stats) so an average hit still does
+ * ~8 damage after the faster-ball retune: balls now stay live longer and land more far-away hits.
+ * Kael: snap point-blank ≈ 8, snap from 600 u ≈ 8, power kick point-blank ≈ 17.
+ */
+export const DAMAGE_MIN_SPEED = 560;
+export const DAMAGE_MAX_SPEED = 2000;
 export const BANK_BONUS_PER_BOUNCE = 0.15;
 export const BANK_BONUS_MAX_BOUNCES = 2;
 export const COMBO_SCALING = [1, 0.8, 0.65, 0.5, 0.4];
