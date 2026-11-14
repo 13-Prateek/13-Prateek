@@ -80,5 +80,9 @@ export function checkNeutral(state: MatchState, events: GameEvent[]): void {
     b.mode = 'neutral';
     b.element = null;
     events.push({ type: 'ballNeutral', pos: copy(b.pos) });
+    if ((b.heat ?? 0) !== 0) {
+      b.heat = 0;
+      events.push({ type: 'heat', level: 0, pos: copy(b.pos) });
+    }
   }
 }

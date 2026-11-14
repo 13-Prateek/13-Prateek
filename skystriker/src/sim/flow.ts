@@ -1,6 +1,6 @@
 /** Match flow: countdown → playing → (KO | timeout | sudden death) → roundOver → next round / matchOver. */
 import {
-  ARENA_MARGIN, AURA_CARRIES_OVER, BALL_RADIUS, COUNTDOWN_TICKS, HITSTOP_KO, KICK_RECOVERY_TICKS, MAX_HP,
+  ARENA_MARGIN, AURA_CARRIES_OVER, BALL_RADIUS, COUNTDOWN_TICKS, FINAL_RUSH_TICKS, HITSTOP_KO, KICK_RECOVERY_TICKS, MAX_HP,
   ROUND_OVER_TICKS, ROUND_TIME, SIM_DT, SIM_HZ, SUDDEN_DEATH_MIN_H, SUDDEN_DEATH_MIN_W, SUDDEN_DEATH_SHRINK_SPEED,
   WORLD_H, WORLD_W,
 } from '../shared/constants';
@@ -18,13 +18,14 @@ export function makeFighter(id: PlayerId, config: MatchConfig, aura = 0): Fighte
     hp: MAX_HP, aura, kickPhase: 'idle', kickTimer: 0, charge: 0,
     dashCooldown: 0, dashTimer: 0, invulnTimer: 0, hitstun: 0,
     trapping: false, infused: false, comboAgainst: 0, trapLock: false, closeCall: 0,
+    winded: 0, phaseDashTimer: 0, windedMult: 1,
   };
 }
 
 export function makeBall(): BallState {
   return {
     pos: { x: WORLD_W / 2, y: WORLD_H / 2 }, vel: { x: 0, y: 0 }, radius: BALL_RADIUS, spin: 0,
-    mode: 'neutral', owner: null, element: null, bounces: 0, heldBy: null, heldTicks: 0, cruise: 0,
+    mode: 'neutral', owner: null, element: null, bounces: 0, heldBy: null, heldTicks: 0, cruise: 0, heat: 0,
   };
 }
 
@@ -41,6 +42,7 @@ export function startRound(state: MatchState, round: number): void {
   state.phase = 'countdown';
   state.phaseTimer = COUNTDOWN_TICKS;
   state.suddenDeath = false;
+  state.finalRush = false;
   state.hitstop = 0;
 }
 
@@ -98,11 +100,20 @@ export function timeout(state: MatchState, events: GameEvent[]): void {
   callout(events, 'SUDDEN DEATH!', null, 3);
 }
 
-/** Sudden death: the walls slowly close in (down to a minimum size). */
-export function shrinkArena(state: MatchState): void {
-  const a = state.arena, s = SUDDEN_DEATH_SHRINK_SPEED * SIM_DT;
-  if (a.right - a.left - 2 * s >= SUDDEN_DEATH_MIN_W) { a.left += s; a.right -= s; }
-  if (a.bottom - a.top - 2 * s >= SUDDEN_DEATH_MIN_H) { a.top += s; a.bottom -= s; }
+/** Walls slowly close in (sudden death, or gentler in Final Rush), down to a minimum size. */
+export function shrinkArena(
+  state: MatchState, speed = SUDDEN_DEATH_SHRINK_SPEED, minW = SUDDEN_DEATH_MIN_W, minH = SUDDEN_DEATH_MIN_H,
+): void {
+  const a = state.arena, s = speed * SIM_DT;
+  if (a.right - a.left - 2 * s >= minW) { a.left += s; a.right -= s; }
+  if (a.bottom - a.top - 2 * s >= minH) { a.top += s; a.bottom -= s; }
+}
+
+/** Final Rush: once the round timer reaches FINAL_RUSH_TICKS (heat floor + gently closing walls). */
+export function checkFinalRush(state: MatchState, events: GameEvent[]): void {
+  if (state.finalRush || state.suddenDeath || state.phaseTimer > FINAL_RUSH_TICKS) return;
+  state.finalRush = true;
+  events.push({ type: 'finalRush' });
 }
 
 export function roundWinner(state: MatchState): PlayerId | null {

@@ -6,14 +6,16 @@
  * → held ball → ball sub-steps (walls, foot → body → bump contacts, close calls) → live/neutral
  * → kick timers → KO → sudden-death walls → round timer → prevInput.
  */
-import { COUNTDOWN_TICKS, INFUSE_COST, ROUNDS_TO_WIN } from '../shared/constants';
+import {
+  COUNTDOWN_TICKS, FINAL_RUSH_MIN_H, FINAL_RUSH_MIN_W, FINAL_RUSH_SHRINK_SPEED, INFUSE_COST, PHASE_DASH_COST, ROUNDS_TO_WIN,
+} from '../shared/constants';
 import type { FighterState, GameEvent, InputFrame, MatchConfig, MatchState } from '../shared/types';
 import { EMPTY_INPUT } from '../shared/types';
 import { checkNeutral, collideBallWalls, integrateBall } from './ball';
 import { resolveContacts, updateCloseCalls, type TickCtx } from './combat';
 import { edgesOf, moveFighter, tickTimers, tryDash, updateFacing } from './fighter';
 import {
-  checkKO, freshArena, makeBall, makeFighter, roundOverEnd, roundOverStart, shrinkArena, stepCountdown, timeout,
+  checkFinalRush, checkKO, freshArena, makeBall, makeFighter, roundOverEnd, roundOverStart, shrinkArena, stepCountdown, timeout,
 } from './flow';
 import { endOfTickKick, updateHeldBall, updateKickInput, updateTrap } from './kick';
 import { spendAura } from './util';
@@ -24,7 +26,7 @@ export function createMatch(config: MatchConfig): MatchState {
     tick: 0, phase: 'countdown', phaseTimer: COUNTDOWN_TICKS, round: 1, wins: [0, 0],
     fighters: [makeFighter(0, config), makeFighter(1, config)],
     ball: makeBall(),
-    hitstop: 0, suddenDeath: false,
+    hitstop: 0, suddenDeath: false, finalRush: false,
     arena: freshArena(),
     rng: config.seed | 0,
     prevInput: [{ ...EMPTY_INPUT }, { ...EMPTY_INPUT }],
@@ -50,7 +52,11 @@ export function stepMatch(state: MatchState, inputs: [InputFrame, InputFrame]): 
       simulate(state, inputs, events, true);
       if (state.phase === 'playing') {
         if (state.suddenDeath) shrinkArena(state);
-        else if (--state.phaseTimer <= 0) timeout(state, events);
+        else {
+          if (state.finalRush) shrinkArena(state, FINAL_RUSH_SHRINK_SPEED, FINAL_RUSH_MIN_W, FINAL_RUSH_MIN_H);
+          if (--state.phaseTimer <= 0) timeout(state, events);
+          else checkFinalRush(state, events);
+        }
       }
       break;
     case 'roundOver':
@@ -72,16 +78,26 @@ function simulate(state: MatchState, inputs: [InputFrame, InputFrame], events: G
   const opp = (f: FighterState) => (f.id === 0 ? f1 : f0);
   const input = (f: FighterState): InputFrame => (combat ? inputs[f.id] : EMPTY_INPUT);
 
-  for (const f of state.fighters) tickTimers(f);
+  for (const f of state.fighters) tickTimers(f, events);
   for (const f of state.fighters) updateFacing(f, input(f), opp(f));
   if (combat) {
     for (const f of state.fighters) {
       const inp = inputs[f.id];
       const edges = edgesOf(state.prevInput[f.id], inp);
-      if (edges.infusePressed && f.hitstun === 0 && !f.infused && f.aura >= INFUSE_COST) {
-        spendAura(f, INFUSE_COST, events);
-        f.infused = true;
-        events.push({ type: 'infuse', player: f.id, element: f.element });
+      if (edges.infusePressed && f.hitstun === 0 && !f.infused) {
+        if (f.aura >= INFUSE_COST) {
+          spendAura(f, INFUSE_COST, events);
+          f.infused = true;
+          events.push({ type: 'infuse', player: f.id, element: f.element });
+        } else events.push({ type: 'noAura', player: f.id, action: 'infuse' });
+      }
+      // Phase Dash (Q): pay aura for an invulnerable dash. Short on aura → `noAura`, nothing else.
+      if (edges.phaseDashPressed && f.hitstun === 0) {
+        if (f.aura < PHASE_DASH_COST) events.push({ type: 'noAura', player: f.id, action: 'phaseDash' });
+        else if (f.dashCooldown === 0) {
+          spendAura(f, PHASE_DASH_COST, events);
+          tryDash(state, f, inp, events, true);
+        }
       }
       if (edges.dashPressed) tryDash(state, f, inp, events);
       updateKickInput(state, f, inp, edges, events);

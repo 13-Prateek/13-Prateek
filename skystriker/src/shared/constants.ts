@@ -23,8 +23,15 @@ export const FIGHTER_MAX_SPEED = 520; // units/s (× hero.speed); excess speed f
 export const FIGHTER_DRAG = 5.5; // per second, exponential
 export const DASH_SPEED = 1150; // held constant for DASH_TICKS, then drag takes over
 export const DASH_TICKS = sec(0.14);
-export const DASH_COOLDOWN = sec(0.8);
-export const DASH_INVULN = sec(0.1); // invulnerable ticks at the start of a dash (enemy balls pass through)
+export const DASH_COOLDOWN = sec(1.2); // shared by the free dash and the Phase Dash
+export const DASH_INVULN = 0; // pressure pass: the FREE dash is not invulnerable (Phase Dash is)
+export const WINDED_TICKS = sec(0.25); // after a free dash: slowed for this long...
+export const WINDED_MULT = 0.5; // ...moving at this fraction of accel and max speed
+/* Phase Dash (Q): costs aura, same burst as a dash, invulnerable for the whole burst */
+export const PHASE_DASH_COST = 50; // aura (half a bar)
+export const PHASE_DASH_EXTRA_INVULN = 2; // invulnerable ticks after the burst ends
+export const PHASE_WINDED_TICKS = sec(0.4); // Winded after a Phase Dash: longer...
+export const PHASE_WINDED_MULT = 0.4; // ...and slower than after a free dash
 export const WALL_KICKOFF_SPEED = 1300; // dash while touching a wall: launch away from it (faster than a dash, rewards wall play)
 export const WALL_TOUCH_SLOP = 6; // a fighter within this many units of a wall counts as touching it
 export const CHARGE_MOVE_MULT = 0.6; // move speed while charging a power kick
@@ -38,8 +45,8 @@ export const KICK_ACTIVE_TICKS = 6; // foot hitbox live after the kick button is
 export const KICK_RECOVERY_TICKS = 10; // after a whiff or a connected kick, before the next kick
 export const KICK_CHARGE_START = 8; // held this many ticks before it counts as charging
 export const KICK_CHARGE_FULL = sec(1.0); // held ticks for a full charge
-export const SNAP_KICK_SPEED = 1050; // tap kick (playtest: 900 felt slow)
-export const POWER_KICK_MAX_SPEED = 1900; // full-charge kick
+export const SNAP_KICK_SPEED = 1250; // tap kick (pressure pass: 1050 was dodged just by flying)
+export const POWER_KICK_MAX_SPEED = 2200; // full-charge kick
 /**
  * Perfect return: ticks from the kick going active (button released) to the moment the
  * enemy ball WOULD have hit the body (time-to-impact). Release within this window = PERFECT.
@@ -70,12 +77,12 @@ export const TRAP_POP_SPREAD = 0.9; // radians of random spread on the forced po
 /* Ball */
 export const BALL_RADIUS = 18;
 export const BALL_DRAG = 0.4; // per second, exponential (applies after the cruise)
-export const BALL_CRUISE_TICKS = sec(0.25); // a kicked ball keeps its full speed this long before drag starts
+export const BALL_CRUISE_TICKS = sec(0.35); // a kicked ball keeps its full speed this long before drag starts
 export const BALL_NEUTRAL_DRAG = 1.0; // per second: a harmless (neutral) ball settles instead of drifting into corners
 export const BALL_WALL_RESTITUTION = 0.9;
 export const BALL_WALL_SPIN_KEEP = 0.6; // spin kept after a wall bounce
 export const BALL_LIVE_MIN_SPEED = 480; // below this, a live ball goes neutral (harmless, white)
-export const BALL_MAX_SPEED = 2600;
+export const BALL_MAX_SPEED = 3100; // fits a heat-4 full power kick (2200 × 1.4); perfect returns are capped here
 export const BALL_MAX_SUBSTEPS = 12; // movement split so a fast ball can't tunnel
 export const BUMP_RESTITUTION = 0.3; // body bump bounciness (neutral ball, or your own live ball)
 export const BUMP_EVENT_MIN_SPEED = 150; // only emit `bump` events above this closing speed
@@ -91,8 +98,8 @@ export const DAMAGE_MAX = 16; // at DAMAGE_MAX_SPEED (before bonuses); keeps ris
  * ~8 damage after the faster-ball retune: balls now stay live longer and land more far-away hits.
  * Kael: snap point-blank ≈ 8, snap from 600 u ≈ 8, power kick point-blank ≈ 17.
  */
-export const DAMAGE_MIN_SPEED = 560;
-export const DAMAGE_MAX_SPEED = 2000;
+export const DAMAGE_MIN_SPEED = 705; // rescaled with the faster kicks: a heat-0 snap and a full power kick
+export const DAMAGE_MAX_SPEED = 2310; // still do the same damage as before the pressure pass
 export const BANK_BONUS_PER_BOUNCE = 0.15;
 export const BANK_BONUS_MAX_BOUNCES = 2;
 export const COMBO_SCALING = [1, 0.8, 0.65, 0.5, 0.4];
@@ -140,3 +147,14 @@ export const SUDDEN_DEATH_SHRINK_SPEED = 30; // units/s each wall moves inward i
 export const SUDDEN_DEATH_MIN_W = 700; // arena stops shrinking at this size
 export const SUDDEN_DEATH_MIN_H = 420;
 export const SUDDEN_DEATH_ONE_HIT = true; // in sudden death any damage is a K.O.
+
+/* Rally Heat: returns escalate */
+export const HEAT_MAX = 4;
+export const HEAT_SPEED_PER_LEVEL = 0.1; // kick speed × (1 + this × heat)
+
+/* Final Rush: the last stretch of a round */
+export const FINAL_RUSH_TICKS = sec(20); // round timer at/below this = Final Rush
+export const FINAL_RUSH_HEAT_FLOOR = 1; // every kick in Final Rush has at least this much heat
+export const FINAL_RUSH_SHRINK_SPEED = 12; // units/s each wall moves in (gentler than sudden death)
+export const FINAL_RUSH_MIN_W = 1100; // walls stop closing at this size (larger than sudden death)
+export const FINAL_RUSH_MIN_H = 640;

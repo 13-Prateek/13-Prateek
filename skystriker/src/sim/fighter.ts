@@ -1,7 +1,8 @@
 /** Fighter: input edges, timers, facing, dash / wall kick-off, flight, wall stops and wall splats. */
 import {
   CHARGE_MOVE_MULT, DASH_COOLDOWN, DASH_INVULN, DASH_SPEED, DASH_TICKS, FIGHTER_ACCEL, FIGHTER_BODY_RADIUS,
-  FIGHTER_DRAG, FIGHTER_MAX_SPEED, HITSTOP_SPLAT, HITSTUN_DRAG, KICK_CHARGE_START, SIM_DT, SUDDEN_DEATH_ONE_HIT,
+  FIGHTER_DRAG, FIGHTER_MAX_SPEED, HITSTOP_SPLAT, HITSTUN_DRAG, KICK_CHARGE_START, PHASE_DASH_EXTRA_INVULN,
+  PHASE_WINDED_MULT, PHASE_WINDED_TICKS, SIM_DT, SUDDEN_DEATH_ONE_HIT, WINDED_MULT, WINDED_TICKS,
   TRAP_MOVE_MULT, WALL_KICKOFF_SPEED, WALL_SPLAT_DAMAGE, WALL_SPLAT_MIN_SPEED, WALL_SPLAT_RESTITUTION,
   WALL_SPLAT_STUN, WALL_TOUCH_SLOP,
 } from '../shared/constants';
@@ -13,6 +14,7 @@ export interface Edges {
   kickPressed: boolean;
   kickReleased: boolean;
   dashPressed: boolean;
+  phaseDashPressed: boolean;
   infusePressed: boolean;
 }
 
@@ -21,14 +23,25 @@ export function edgesOf(prev: InputFrame, cur: InputFrame): Edges {
     kickPressed: cur.kick && !prev.kick,
     kickReleased: !cur.kick && prev.kick,
     dashPressed: cur.dash && !prev.dash,
+    phaseDashPressed: !!cur.phaseDash && !prev.phaseDash,
     infusePressed: cur.infuse && !prev.infuse,
   };
 }
 
-/** Per-tick countdown of fighter timers. Hitstun ending resets the combo counter (GDD §6). */
-export function tickTimers(f: FighterState): void {
+/**
+ * Per-tick countdown of fighter timers. Hitstun ending resets the combo counter (GDD §6).
+ * A dash burst ending leaves the fighter Winded (longer and slower after a Phase Dash).
+ */
+export function tickTimers(f: FighterState, events: GameEvent[]): void {
   if (f.dashCooldown > 0) f.dashCooldown--;
-  if (f.dashTimer > 0) f.dashTimer--;
+  if ((f.winded ?? 0) > 0) f.winded = (f.winded ?? 0) - 1;
+  if (f.dashTimer > 0 && --f.dashTimer === 0) {
+    const phase = (f.phaseDashTimer ?? 0) > 0;
+    f.winded = phase ? PHASE_WINDED_TICKS : WINDED_TICKS;
+    f.windedMult = phase ? PHASE_WINDED_MULT : WINDED_MULT;
+    events.push({ type: 'winded', player: f.id, ticks: f.winded });
+  }
+  if ((f.phaseDashTimer ?? 0) > 0) f.phaseDashTimer = (f.phaseDashTimer ?? 0) - 1;
   if (f.invulnTimer > 0) f.invulnTimer--;
   if (f.hitstun > 0) {
     f.hitstun--;
@@ -61,9 +74,14 @@ export function touchingWalls(state: MatchState, f: FighterState): Vec2[] {
   return out;
 }
 
-/** Dash on press: burst in the move direction (or facing). Touching a wall = wall kick-off. */
-export function tryDash(state: MatchState, f: FighterState, inp: InputFrame, events: GameEvent[]): void {
-  if (f.dashCooldown > 0 || f.hitstun > 0) return;
+/**
+ * Dash on press: burst in the move direction (or facing). Touching a wall = wall kick-off.
+ * Free dash: no invulnerability. Phase Dash (`phase`, aura already checked by the caller):
+ * invulnerable for the whole burst + PHASE_DASH_EXTRA_INVULN ticks. Both leave you Winded.
+ * Returns true if the dash happened.
+ */
+export function tryDash(state: MatchState, f: FighterState, inp: InputFrame, events: GameEvent[], phase = false): boolean {
+  if (f.dashCooldown > 0 || f.hitstun > 0) return false;
   const mv = moveVec(inp);
   let dir = norm(mv);
   if (dir.x === 0 && dir.y === 0) dir = copy(f.facing);
@@ -83,10 +101,18 @@ export function tryDash(state: MatchState, f: FighterState, inp: InputFrame, eve
   f.vel = { x: dir.x * speed, y: dir.y * speed };
   f.dashTimer = DASH_TICKS;
   f.dashCooldown = DASH_COOLDOWN;
-  f.invulnTimer = Math.max(f.invulnTimer, DASH_INVULN);
-  events.push(wallKick
-    ? { type: 'dash', player: f.id, pos: copy(f.pos), dir: copy(dir), wallKick: true }
-    : { type: 'dash', player: f.id, pos: copy(f.pos), dir: copy(dir) });
+  f.winded = 0;
+  if (phase) {
+    f.phaseDashTimer = DASH_TICKS + PHASE_DASH_EXTRA_INVULN;
+    f.invulnTimer = Math.max(f.invulnTimer, f.phaseDashTimer);
+    events.push({ type: 'phaseDash', player: f.id, pos: copy(f.pos), dir: copy(dir) });
+  } else {
+    f.invulnTimer = Math.max(f.invulnTimer, DASH_INVULN);
+    events.push(wallKick
+      ? { type: 'dash', player: f.id, pos: copy(f.pos), dir: copy(dir), wallKick: true }
+      : { type: 'dash', player: f.id, pos: copy(f.pos), dir: copy(dir) });
+  }
+  return true;
 }
 
 /** Integrate one fighter: control + drag (or dash hold / hitstun drift), then walls. */
@@ -101,6 +127,7 @@ export function moveFighter(state: MatchState, f: FighterState, inp: InputFrame,
     let mult = h.speed;
     if (f.kickPhase === 'charging' && f.kickTimer >= KICK_CHARGE_START) mult *= CHARGE_MOVE_MULT;
     if (f.trapping) mult *= TRAP_MOVE_MULT;
+    if ((f.winded ?? 0) > 0) mult *= f.windedMult ?? WINDED_MULT;
     const mv = moveVec(inp);
     const drag = Math.exp(-FIGHTER_DRAG * SIM_DT);
     const before = Math.hypot(f.vel.x, f.vel.y);

@@ -2,7 +2,57 @@
 
 Branch: `claude/skystriker-sim`. Code: `src/sim/**`, tests: `tests/sim/**`, tuning: `src/shared/constants.ts`.
 
-## Latest: ball-feel fix (after the first playtest)
+## Latest: pressure pass (dodging costs something, rounds don't stall)
+Problem: fighters top out at 520 u/s and only need to slide about 52 u sideways to escape a shot, so anything slower than about 0.45 s was dodged just by flying. The free dash was also invulnerable, so spamming it was safe, and slow rounds drifted to the timer.
+
+**What changed for the player:**
+- **Faster shots.**
+  - Snap 1050 → **1250**, full power kick 1900 → **2200**, and a fresh kick holds full speed for **0.35 s** (was 0.25).
+  - A snap that starts 800 u from you now reaches you in **0.62 s** (it was about 0.76 s). At Heat 4 it takes **0.43 s**.
+  - Per-hit damage is **unchanged**: the damage speeds were rescaled to 705 / 2310, so a snap still does about 9 and a full power kick about 17 (Kael).
+- **Free dash (Space / Shift)** is now for repositioning, not dodging.
+  - **No invulnerability**: a ball hits you mid-dash.
+  - Cooldown 0.8 s → **1.2 s**.
+  - When the burst ends you're **Winded for 0.25 s**: half acceleration and half top speed. A `winded` event fires.
+- **Phase Dash (Q / pad B)** is the paid dodge.
+  - It costs **50 aura** (half a bar) and does the same burst as a dash (wall kick-off works too).
+  - You're **invulnerable for the whole burst plus 2 ticks**, so the ball passes straight through you.
+  - Afterwards you're **Winded for 0.4 s at 40% speed**.
+  - It shares the dash cooldown, and dodging with it earns **no close-call aura**.
+  - With too little aura nothing happens and a `noAura` event fires. On cooldown it silently does nothing and no aura is spent.
+  - E (Infuse) without a full bar now also fires `noAura`.
+- **Rally Heat (0–4).**
+  - Each time you kick back the opponent's live ball (a return, perfect returns included), Heat goes up by 1, and the ball flies 10% faster per Heat level. Heat 4 = ×1.4.
+  - Heat resets to 0 when the ball hits someone, goes neutral (white), or is trapped. A `heat` event fires on every change.
+  - Hot balls hit a bit harder, because damage follows speed (max ball speed 3100).
+- **Final Rush** (last 20 s of a round).
+  - A `finalRush` event fires once (no extra callout; the UI shows "FINAL RUSH!" from that event).
+  - The walls close in gently, 12 u/s per side, down to 1100×640. That's gentler and larger than sudden death.
+  - Every kick has at least Heat 1. It's cleared next round.
+
+| Measured | Before | Now |
+|---|---|---|
+| Snap starting 800 u from you: time to reach you | ~0.76 s | **0.62 s** (Heat 4: **0.43 s**) |
+| Free dash invulnerability | 6 ticks | **none** |
+| Bot-vs-bot rounds ending on the timer (same seeds, ~27 rounds) | 5 | **0** (8 + 3 resolved in Final Rush) |
+| Mean round, chaser v sparring bot / bot v bot | 73 s / 61 s | 74 s / 57 s |
+| Damage per hit (same matchups) | 9.3 / 9.1 | 9.7 / 8.8 |
+
+### How to playtest the pressure pass
+Note: Q → Phase Dash needs the UI/input session's update (it's being built in parallel). Until the lead merges it, Q may do nothing in a build made from this branch alone.
+
+1. **Shots are harder to dodge.** Stand still on one side and let the bot shoot at you. Just flying sideways now only works if you start moving early, by reading the kick.
+2. **Free dash (Space).** Dash, then try to steer right away: for a quarter of a second you feel heavy and slow (Winded). Dash *into* an incoming ball: it now hits you. You can only dash about once every 1.2 s.
+3. **Phase Dash (Q).**
+   - Get half an aura bar (a couple of kicks and a hit). Wait for a shot, then press **Q** as it arrives: you burst through the ball untouched (the game shows you ghosted). Half a bar is spent.
+   - Afterwards you're sluggish for almost half a second (Winded, even slower than after a normal dash).
+   - Press Q with less than half a bar: nothing happens and the aura meter flashes.
+4. **Rally Heat.** Kick the ball back every time the bot shoots it at you (a return). Each return adds one Heat level: the ball glows hotter and flies noticeably faster, up to Heat 4. The first hit, or the ball going white, or trapping it, cools it back to 0.
+5. **Final Rush.** Let a round run down to 20 s (or watch the timer). "FINAL RUSH!" appears, the walls slowly creep inward, and even a fresh kick of a white ball comes out at Heat 1. The next round starts with full-size walls.
+
+What to report: does flying still feel like a valid dodge if you react early? Is Phase Dash worth half a bar? Does Winded feel fair or annoying? Do rallies escalate in a fun way? Does Final Rush make the last 20 s tense?
+
+## Previous: ball-feel fix (after the first playtest)
 Owner's report: *"the ball is a bit slow, and sometimes it's curving away and sometimes being dragged down heavily."*
 
 **Cause:** every kick made while moving sideways to the aim curved, by up to about 74°. Players hold WASD all the time while fighting, so most shots bent without the player meaning it. The sparring bot's kicks curved 46–78% of the time. The ball was also slow and bled speed straight away: a snap kick died mid-arena.
@@ -52,15 +102,17 @@ What to report: does the ball now go where you point? Is it fast enough, or too 
 
 ## What's done (full feature list)
 - **Flight:** 360° movement with momentum and drag, a capped top speed (× hero speed), and wall stops at the body edge. You face your aim, or the opponent when there's no aim.
-- **Dash** (press): a burst in the move direction (or facing). It has a cooldown, and its first ticks are invulnerable, so enemy balls pass through.
+- **Dash** (press, free): a burst in the move direction (or facing). 1.2 s cooldown, **not** invulnerable, then Winded for 0.25 s at half speed.
+- **Phase Dash** (Q, 50 aura): the same burst, invulnerable for the whole burst + 2 ticks, then Winded for 0.4 s at 40% speed. It shares the cooldown and earns no close-call aura. Without the aura → `noAura`.
 - **Wall kick-off:** dash while touching a wall to launch off it at 1300, keeping the sideways part of your input.
 - **Ball:**
-  - Kicks cruise for 0.25 s, then drag applies: 0.4 while live, 1.0 once neutral.
+  - Kicks cruise for 0.35 s, then drag applies: 0.4 while live, 1.0 once neutral.
+  - **Rally Heat 0–4:** +1 per return, +10% speed per level; resets on a hit, when the ball goes neutral, or on a trap.
   - Wall bounces count `bounces`.
   - Curve spin bends the path by a capped total.
   - Movement is sub-stepped (no tunnelling at 2600 u/s), and a slow ball returns to neutral.
 - **Kicks:** they fire on release.
-  - A tap is a snap kick (1050). Holding charges a power kick (up to 1900) at 60% move speed, with one `chargeFull` event.
+  - A tap is a snap kick (1250). Holding charges a power kick (up to 2200) at 60% move speed, with one `chargeFull` event. Both are × Heat.
   - Curve shot (charge ≥ 0.5 + moving sideways): the bend is capped at `CURVE_BEND × control`.
   - Kicks go in the aim direction, or toward the opponent.
 - **Trap / dribble:**
@@ -75,13 +127,28 @@ What to report: does the ball now go where you point? Is it fast enough, or too 
 - **Combos:** each further hit stuns for 80% of the previous one, and the 5th hit gives 0.6 s of invulnerability (no infinites).
 - **Wall splat:** a stunned fighter hitting a wall above 600 takes 5 damage, bounces, and gets a longer stun.
 - **Close call:** an enemy ball within 26 units (or through you mid-dash), once per pass, gives 15 aura.
-- **Aura and Infuse:** kicks, perfects, close calls and hits fill aura. **Infuse** (E, 1 bar): the next kick carries your element and does ×1.2 damage.
+- **Aura and Infuse:** kicks, perfects, close calls and hits fill aura. **Infuse** (E, 1 bar): the next kick carries your element and does ×1.2 damage. Without the aura → `noAura`.
 - **Match flow:**
   - Countdown 3-2-1 → FIGHT → 90 s.
   - K.O.: a 30-tick freeze, then round over (2.5 s), then the next round or the match end (best of 3).
+  - **Final Rush** at 20 s left: the walls close gently (to 1100×640) and every kick has Heat ≥ 1.
   - Timeout: higher HP wins. A tie starts sudden death (walls close in, ball ×1.25, next damage wins).
   - Aura carries over between rounds.
 - **Hitstop:** the world freezes; presses during the freeze fire on the first tick after it.
+
+## Verified (pressure pass)
+- `npm run typecheck` passes.
+- `npm test` passes: 146 tests in 15 files, including the lead's sparring-bot tests (corner escapes, and "ball never sits still" over 3 minutes).
+- `npm run build && npm run smoke` passes.
+- `node scripts/scenario-integration.mjs` passes (see the port note under Requests for lead).
+- `tests/sim/pressure.test.ts` pins the brief's targets:
+  - Arrival: Heat 0 ≤ 0.65 s (measured 0.617 s); Heat 4 ≤ 0.5 s (measured 0.433 s).
+  - Free dash: no invulnerability (a ball hits mid-dash), Winded afterwards and capped at half speed.
+  - Phase Dash: spends 50, the ball passes through, no close-call aura, longer and slower Winded; with 49 aura → `noAura` and nothing else; shares the cooldown.
+  - Heat: +1 per return, a real 4-kick rally climbs 0→1→2→3, capped at 4, unchanged on your own ball; resets (with an event) on a hit, on neutral and on a trap.
+  - Final Rush: triggers once at 20 s, closes the walls and stops at the minimum, Heat floor 1, cleared next round, never early.
+  - The determinism replay now also presses Phase Dash.
+- Screenshot `int-02-fight` (timer 86): Kael's live orange ball with its trail has just bounced off Yuki (91 HP). Normal play renders fine.
 
 ## Verified (ball-feel fix)
 - `npm run typecheck`, `npm test` (118 tests in 14 files, including the lead's `tests/integration/sparring-bot.test.ts`), `npm run build && npm run smoke`, and `node scripts/scenario-integration.mjs` all pass.
@@ -108,6 +175,17 @@ What to report: does the ball now go where you point? Is it fast enough, or too 
 - A fighter can push a ball that's pinned in a wall corner into its own body (the ball sits inside the body until kicked). I tried pushing the body off instead, but that also shoved fighters away while dribbling along walls and badly hurt play, so I reverted it. Harmless for humans (just kick it); see request 1 for the bot.
 
 ## Contract changes (`src/shared/types.ts`, additive only)
+- **Pressure pass** (fields and events defined by the lead in 74d84d3; the sim now produces all of them):
+  - `InputFrame.phaseDash` is read on its press edge.
+  - `FighterState.winded` holds the ticks left Winded. `FighterState.phaseDashTimer` holds the ticks left phasing (burst + 2).
+  - `BallState.heat` is 0–4. `MatchState.finalRush` is the Final Rush flag.
+  - Events:
+    - `phaseDash` replaces `dash` for a Phase Dash.
+    - `winded` fires when any dash burst ends, with its ticks.
+    - `heat` fires on every change, resets included.
+    - `finalRush` fires once per round.
+    - `noAura` fires with `phaseDash` or `infuse`.
+  - **New sim-internal field:** `FighterState.windedMult?: number` (the current Winded speed multiplier, 0.5 or 0.4). Presentation can ignore it.
 - `BallState.cruise?: number`: **new in this fix**, sim-internal (ticks left of no-drag flight after a kick). Ignore it in presentation.
 - `FighterState.trapLock?`, `FighterState.closeCall?`: sim-internal.
 - `dash` event: optional `wallKick?: boolean`.
@@ -122,6 +200,10 @@ What to report: does the ball now go where you point? Is it fast enough, or too 
 - Callouts: `PERFECT!`(3) `BANK SHOT!`(2) `DOUBLE BANK!`(3) `N-HIT COMBO!`(2/3) `WALL SPLAT!`(2) `CLOSE CALL!`(1) `CLASH!`(3) `K.O.!`(3) `TIME!`(2) `SUDDEN DEATH!`(3).
 
 ## Requests for lead
+0. **Pressure pass:**
+   - **Input:** the Q key / pad B must send `InputFrame.phaseDash`. That's the UI/input session's job in parallel; on this branch alone nothing sends it yet.
+   - **Integration scenario port:** `node scripts/scenario-integration.mjs` failed once here with `WebSocket ... ws://localhost:4181 refused`. That's a Vite dev-server socket, so it most likely hit another session's dev server on the fixed port 4181. Re-runs passed, including with `SMOKE_PORT=4193`. Consider a random or free port by default.
+   - **Sparring bot:** all its tests pass (including the corner and "ball never sits still" ones). It never uses Phase Dash; a wave 2 AI should.
 1. **Sparring bot corner stall** (`src/ai`, yours). When the ball comes to rest in a corner, the bot tries to stand "behind the ball" (opposite its target), which is outside the arena. It wedges itself into the corner facing away and stops kicking until the round resets.
    - I saw this with the in-between tuning: in one run with seed 1337 the bot made only 4 kicks in 90 s.
    - With the final tuning, `sparring-bot.test.ts` passes, and over 5-minute runs the pro bot makes ~39 kicks (rookie 20, legend 64; before: 64 / 15 / 19).
@@ -132,18 +214,29 @@ What to report: does the ball now go where you point? Is it fast enough, or too 
 ## Tuning knobs worth playtesting (`src/shared/constants.ts`)
 | Constant | Value | What it changes |
 |---|---|---|
-| `SNAP_KICK_SPEED` / `POWER_KICK_MAX_SPEED` | **1050 / 1900** (was 900 / 1700) | Shot speeds |
-| `BALL_CRUISE_TICKS` | **15 (0.25 s)**, new | How long a fresh kick flies at full speed before slowing |
+| `SNAP_KICK_SPEED` / `POWER_KICK_MAX_SPEED` | **1250 / 2200** (pressure pass; was 1050 / 1900) | Shot speeds: how hard shots are to dodge |
+| `BALL_CRUISE_TICKS` | **21 (0.35 s)** (was 0.25 s) | How long a fresh kick flies at full speed before slowing |
+| `BALL_MAX_SPEED` | **3100** (was 2600) | Fits a Heat-4 power kick; caps perfect returns |
+| `DASH_INVULN` | **0** (was 6) | The free dash is no longer a dodge |
+| `DASH_COOLDOWN` | **72 (1.2 s)** (was 0.8 s) | Shared by dash and Phase Dash |
+| `WINDED_TICKS` / `WINDED_MULT` | **15 (0.25 s) / 0.5**, new | Slow-down after a free dash |
+| `PHASE_DASH_COST` | **50**, new | Aura per Phase Dash (half a bar) |
+| `PHASE_DASH_EXTRA_INVULN` | **2 ticks**, new | Invulnerability after the burst ends |
+| `PHASE_WINDED_TICKS` / `PHASE_WINDED_MULT` | **24 (0.4 s) / 0.4**, new | Slow-down after a Phase Dash |
+| `HEAT_MAX` / `HEAT_SPEED_PER_LEVEL` | **4 / 0.10**, new | How far rallies escalate |
+| `FINAL_RUSH_TICKS` | **1200 (20 s)**, new | When Final Rush starts |
+| `FINAL_RUSH_HEAT_FLOOR` | **1**, new | Minimum Heat of every kick in Final Rush |
+| `FINAL_RUSH_SHRINK_SPEED` / `FINAL_RUSH_MIN_W` / `FINAL_RUSH_MIN_H` | **12 u/s / 1100 / 640**, new | How much the walls close in Final Rush |
 | `BALL_DRAG` | **0.4** (was 0.55) | How fast a live ball slows after the cruise |
 | `BALL_NEUTRAL_DRAG` | **1.0**, new | How quickly a harmless ball settles |
 | `BALL_LIVE_MIN_SPEED` | **480** (was 420) | Below this the ball turns white and harmless |
 | `CURVE_MIN_CHARGE` | **0.5**, new | How much charge a curve shot needs |
 | `CURVE_BEND` | **0.52 rad ≈ 30°**, new (× hero control) | Total bend of a curve shot |
 | `SPIN_DECAY` | 1.4 | How quickly that bend is used up (higher = bends early, then flies straight) |
-| `DAMAGE_MIN_SPEED` / `DAMAGE_MAX_SPEED` | **560 / 2000**, new | Ball speeds where damage is 4 and 16. **Round length**: raise both to shorten damage, lower to lengthen |
+| `DAMAGE_MIN_SPEED` / `DAMAGE_MAX_SPEED` | **705 / 2310** (rescaled for the faster kicks) | Ball speeds where damage is 4 and 16. **Round length**: raise both to shorten damage, lower to lengthen |
 | `DAMAGE_MIN` / `DAMAGE_MAX` | 4 / 16 | Damage at those speeds |
 | `FIGHTER_ACCEL` / `FIGHTER_MAX_SPEED` / `FIGHTER_DRAG` | 2600 / 520 / 5.5 | Snappy vs floaty flight |
-| `DASH_SPEED` / `DASH_TICKS` / `DASH_COOLDOWN` / `DASH_INVULN` | 1150 / 8 / 48 / 6 | Dash distance, frequency and dodge generosity |
+| `DASH_SPEED` / `DASH_TICKS` | 1150 / 8 | Dash distance |
 | `WALL_KICKOFF_SPEED` | 1300 | Wall kick-off launch |
 | `KICK_CHARGE_FULL` | 60 ticks | Time to a full charge |
 | `PERFECT_WINDOW` | 6 ticks | Perfect timing window (release → would-be impact) |

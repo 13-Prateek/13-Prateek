@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  CHARGE_MOVE_MULT, FIGHTER_MAX_SPEED, HITSTOP_CLASH, HITSTOP_KICK, HITSTOP_PERFECT, KICK_ACTIVE_TICKS,
+  CHARGE_MOVE_MULT, HEAT_SPEED_PER_LEVEL, FIGHTER_MAX_SPEED, HITSTOP_CLASH, HITSTOP_KICK, HITSTOP_PERFECT, KICK_ACTIVE_TICKS,
   KICK_CHARGE_FULL, KICK_RECOVERY_TICKS, MAX_HP, PERFECT_SPEED_MULT, POWER_KICK_MAX_SPEED, SNAP_KICK_SPEED,
   TRAP_MAX_TICKS,
 } from '../../src/shared/constants';
@@ -120,7 +120,7 @@ describe('perfect return', () => {
     const k = ofType(ev, 'kick');
     expect(k).toHaveLength(1);
     expect(k[0].perfect).toBe(true);
-    expect(k[0].speed).toBeCloseTo(SNAP_KICK_SPEED * PERFECT_SPEED_MULT);
+    expect(k[0].speed).toBeCloseTo(SNAP_KICK_SPEED * (1 + HEAT_SPEED_PER_LEVEL) * PERFECT_SPEED_MULT); // a return: heat 1
     expect(ofType(ev, 'callout').map((c) => c.text)).toContain('PERFECT!');
     expect(s.hitstop).toBeGreaterThan(HITSTOP_PERFECT - 5);
   });

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { computeDamage } from '../../src/sim/combat';
 import {
   AURA_GAIN_CLOSE_CALL, AURA_GAIN_HIT_LANDED, AURA_GAIN_HIT_TAKEN, AURA_GAIN_KICK, BALL_LIVE_MIN_SPEED, COMBO_MAX_HITS,
-  DAMAGE_MAX_SPEED, DAMAGE_MIN_SPEED, HITSTOP_HIT, HITSTUN_TICKS,
+  DAMAGE_MAX_SPEED, DAMAGE_MIN_SPEED, HITSTOP_HIT, HITSTUN_TICKS, POWER_KICK_MAX_SPEED, SNAP_KICK_SPEED,
   MAX_HP, WALL_SPLAT_DAMAGE,
 } from '../../src/shared/constants';
 import { clearHitstop, ofType, park, playing, run, setBall, step, tapKick } from './helpers';
@@ -18,10 +18,12 @@ describe('damage formula (GDD §6)', () => {
     expect(dmg(DAMAGE_MIN_SPEED)).toBe(4);
     expect(dmg(DAMAGE_MAX_SPEED)).toBe(18); // 16 × 1.1 = 17.6
     expect(dmg(DAMAGE_MAX_SPEED, 0, false, yuki, kael)).toBe(15); // 16 × 0.95 = 15.2
-    expect(dmg(1900)).toBe(17); // full power kick at point blank: (4 + 12 × 0.931) × 1.1
+    // Same per-hit damage as before the pressure pass (snap 1050 → 9, power 1900 → 17 then).
+    expect(dmg(SNAP_KICK_SPEED)).toBe(9); // (4 + 12 × 0.340) × 1.1
+    expect(dmg(POWER_KICK_MAX_SPEED)).toBe(17); // (4 + 12 × 0.931) × 1.1
   });
   it('keeps rising above DAMAGE_MAX_SPEED (perfect returns hit harder through speed alone)', () => {
-    expect(dmg(2600)).toBe(23); // (4 + 12 × 1.417) × 1.1
+    expect(dmg(3000)).toBe(23); // (4 + 12 × 1.430) × 1.1 = 23.3
   });
   it('bank bonus +15% per bounce, max 2', () => {
     expect(dmg(DAMAGE_MAX_SPEED, 1)).toBe(20); // 17.6 × 1.15
@@ -164,15 +166,17 @@ describe('close calls', () => {
     expect(ofType(ev, 'closeCall')).toHaveLength(0);
   });
 
-  it('dashing through the ball: invulnerable, no damage, counts as a close call', () => {
+  it('a Phase Dash through the ball: invulnerable, no damage, and NO close-call aura (paid dodge)', () => {
     const s = playing();
     const v = s.fighters[1];
+    v.aura = 50;
     setBall(s, 1120, 450, 1500, 0, 0);
-    const ev = step(s, {}, { dash: true, moveY: -1 });
+    const ev = step(s, {}, { phaseDash: true, moveY: -1 });
     ev.push(...run(s, 20));
     expect(ofType(ev, 'hit')).toHaveLength(0);
     expect(v.hp).toBe(MAX_HP);
-    expect(ofType(ev, 'closeCall')).toHaveLength(1);
+    expect(ofType(ev, 'closeCall')).toHaveLength(0);
+    expect(v.aura).toBe(0);
   });
 });
 
