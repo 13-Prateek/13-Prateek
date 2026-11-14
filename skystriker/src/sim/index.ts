@@ -1,61 +1,106 @@
 /**
- * SIM MODULE — STUB. Owned by the sim session (see docs/ARCHITECTURE.md).
- * Replace the internals; keep the exported signatures (SimApi).
+ * SIM MODULE — pure, deterministic fixed-step simulation (see .claude/skills/sim-rules).
+ * Public API: `createMatch` / `stepMatch` (SimApi). Everything else is internal.
+ *
+ * Tick order: hitstop gate → timers → facing → actions (infuse, dash, kick, trap) → fighter movement
+ * → held ball → ball sub-steps (walls, foot → body → bump contacts, close calls) → live/neutral
+ * → kick timers → KO → sudden-death walls → round timer → prevInput.
  */
-import {
-  ARENA_MARGIN, BALL_RADIUS, COUNTDOWN_TICKS, FIGHTER_ACCEL, FIGHTER_DRAG, FIGHTER_MAX_SPEED,
-  MAX_HP, ROUND_TIME, SIM_DT, SIM_HZ, WORLD_H, WORLD_W,
-} from '../shared/constants';
-import { HEROES } from '../shared/heroes';
-import type { FighterState, GameEvent, InputFrame, MatchConfig, MatchState, PlayerId } from '../shared/types';
+import { COUNTDOWN_TICKS, INFUSE_COST, ROUNDS_TO_WIN } from '../shared/constants';
+import type { FighterState, GameEvent, InputFrame, MatchConfig, MatchState } from '../shared/types';
 import { EMPTY_INPUT } from '../shared/types';
-
-function makeFighter(id: PlayerId, config: MatchConfig): FighterState {
-  const hero = HEROES[config.heroes[id]];
-  return {
-    id, heroId: hero.id, element: hero.element,
-    pos: { x: id === 0 ? WORLD_W * 0.25 : WORLD_W * 0.75, y: WORLD_H * 0.5 },
-    vel: { x: 0, y: 0 }, facing: { x: id === 0 ? 1 : -1, y: 0 },
-    hp: MAX_HP, aura: 0, kickPhase: 'idle', kickTimer: 0, charge: 0,
-    dashCooldown: 0, dashTimer: 0, invulnTimer: 0, hitstun: 0,
-    trapping: false, infused: false, comboAgainst: 0,
-  };
-}
+import { checkNeutral, integrateBall } from './ball';
+import { resolveContacts, updateCloseCalls, type TickCtx } from './combat';
+import { edgesOf, moveFighter, tickTimers, tryDash, updateFacing } from './fighter';
+import {
+  checkKO, freshArena, makeBall, makeFighter, roundOverEnd, roundOverStart, shrinkArena, stepCountdown, timeout,
+} from './flow';
+import { endOfTickKick, updateHeldBall, updateKickInput, updateTrap } from './kick';
+import { spendAura } from './util';
 
 export function createMatch(config: MatchConfig): MatchState {
   return {
-    config, tick: 0, phase: 'countdown', phaseTimer: COUNTDOWN_TICKS, round: 1, wins: [0, 0],
+    config: { ...config, heroes: [config.heroes[0], config.heroes[1]], roundsToWin: config.roundsToWin || ROUNDS_TO_WIN },
+    tick: 0, phase: 'countdown', phaseTimer: COUNTDOWN_TICKS, round: 1, wins: [0, 0],
     fighters: [makeFighter(0, config), makeFighter(1, config)],
-    ball: {
-      pos: { x: WORLD_W / 2, y: WORLD_H / 2 }, vel: { x: 0, y: 0 }, radius: BALL_RADIUS, spin: 0,
-      mode: 'neutral', owner: null, element: null, bounces: 0, heldBy: null, heldTicks: 0,
-    },
+    ball: makeBall(),
     hitstop: 0, suddenDeath: false,
-    arena: { left: ARENA_MARGIN, top: ARENA_MARGIN, right: WORLD_W - ARENA_MARGIN, bottom: WORLD_H - ARENA_MARGIN },
+    arena: freshArena(),
     rng: config.seed | 0,
     prevInput: [{ ...EMPTY_INPUT }, { ...EMPTY_INPUT }],
   };
 }
 
+/** Advance exactly one tick. Mutates `state`, returns the events presentation should react to. */
 export function stepMatch(state: MatchState, inputs: [InputFrame, InputFrame]): GameEvent[] {
   const events: GameEvent[] = [];
   state.tick++;
-  if (state.phase === 'countdown') {
-    if (state.phaseTimer % SIM_HZ === 0) events.push({ type: 'countdown', secondsLeft: state.phaseTimer / SIM_HZ });
-    if (--state.phaseTimer <= 0) { state.phase = 'playing'; state.phaseTimer = ROUND_TIME; events.push({ type: 'fight' }); }
+  // Hitstop: the world is frozen. prevInput is NOT updated, so a press during the freeze
+  // fires once on the first tick after it (buffered) instead of being eaten.
+  if (state.hitstop > 0) {
+    state.hitstop--;
+    return events;
   }
-  // Stub movement only so the scaffold is visibly alive.
-  for (const f of state.fighters) {
-    const inp = inputs[f.id];
-    f.vel.x += inp.moveX * FIGHTER_ACCEL * SIM_DT;
-    f.vel.y += inp.moveY * FIGHTER_ACCEL * SIM_DT;
-    const d = Math.exp(-FIGHTER_DRAG * SIM_DT);
-    f.vel.x *= d; f.vel.y *= d;
-    const sp = Math.hypot(f.vel.x, f.vel.y);
-    if (sp > FIGHTER_MAX_SPEED) { f.vel.x *= FIGHTER_MAX_SPEED / sp; f.vel.y *= FIGHTER_MAX_SPEED / sp; }
-    f.pos.x = Math.min(state.arena.right, Math.max(state.arena.left, f.pos.x + f.vel.x * SIM_DT));
-    f.pos.y = Math.min(state.arena.bottom, Math.max(state.arena.top, f.pos.y + f.vel.y * SIM_DT));
+  switch (state.phase) {
+    case 'countdown':
+      for (const f of state.fighters) updateFacing(f, inputs[f.id], state.fighters[f.id === 0 ? 1 : 0]);
+      stepCountdown(state, events);
+      break;
+    case 'playing':
+      simulate(state, inputs, events, true);
+      if (state.phase === 'playing') {
+        if (state.suddenDeath) shrinkArena(state);
+        else if (--state.phaseTimer <= 0) timeout(state, events);
+      }
+      break;
+    case 'roundOver':
+      roundOverStart(state, events);
+      simulate(state, inputs, events, false);
+      roundOverEnd(state, events);
+      break;
+    case 'matchOver':
+      simulate(state, inputs, events, false);
+      break;
   }
   state.prevInput = [{ ...inputs[0] }, { ...inputs[1] }];
   return events;
+}
+
+function simulate(state: MatchState, inputs: [InputFrame, InputFrame], events: GameEvent[], combat: boolean): void {
+  const ctx: TickCtx = { state, inputs, events, combat, hitThisTick: false };
+  const [f0, f1] = state.fighters;
+  const opp = (f: FighterState) => (f.id === 0 ? f1 : f0);
+  const input = (f: FighterState): InputFrame => (combat ? inputs[f.id] : EMPTY_INPUT);
+
+  for (const f of state.fighters) tickTimers(f);
+  for (const f of state.fighters) updateFacing(f, input(f), opp(f));
+  if (combat) {
+    for (const f of state.fighters) {
+      const inp = inputs[f.id];
+      const edges = edgesOf(state.prevInput[f.id], inp);
+      if (edges.infusePressed && f.hitstun === 0 && !f.infused && f.aura >= INFUSE_COST) {
+        spendAura(f, INFUSE_COST, events);
+        f.infused = true;
+        events.push({ type: 'infuse', player: f.id, element: f.element });
+      }
+      if (edges.dashPressed) tryDash(state, f, inp, events);
+      updateKickInput(state, f, inp, edges, events);
+      updateTrap(state, f, inp, events);
+    }
+  }
+  for (const f of state.fighters) moveFighter(state, f, input(f), events, combat);
+
+  updateHeldBall(state, events);
+  if (state.ball.heldBy !== null) {
+    resolveContacts(ctx); // an enemy foot can still steal a trapped ball
+  } else {
+    integrateBall(state, events, () => {
+      resolveContacts(ctx);
+      updateCloseCalls(ctx);
+    });
+  }
+  updateCloseCalls(ctx);
+  checkNeutral(state, events);
+  for (const f of state.fighters) endOfTickKick(f);
+  if (combat) checkKO(state, events);
 }
