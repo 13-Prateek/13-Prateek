@@ -98,6 +98,10 @@ export interface FighterState {
   infused: boolean;
   /** Current combo count being suffered (for damage scaling + UI). */
   comboAgainst: number;
+  /** (sim-internal, added by sim) Trap is locked until the trap button is released (after a forced pop). */
+  trapLock?: boolean;
+  /** (sim-internal, added by sim) Close-call tracker for the current enemy ball pass: 0 idle, 1 in zone, 2 spent. */
+  closeCall?: 0 | 1 | 2;
 }
 
 export type BallMode = 'neutral' | 'live' | 'super';
@@ -162,7 +166,7 @@ export type GameEvent =
   | { type: 'countdown'; secondsLeft: number }
   | { type: 'fight' }
   | { type: 'move'; player: PlayerId } // reserved, optional
-  | { type: 'dash'; player: PlayerId; pos: Vec2; dir: Vec2 }
+  | { type: 'dash'; player: PlayerId; pos: Vec2; dir: Vec2; /** Added by sim: true for a wall kick-off. */ wallKick?: boolean }
   | { type: 'kickStart'; player: PlayerId; charge: number }
   | { type: 'chargeFull'; player: PlayerId }
   | {
@@ -203,7 +207,9 @@ export type GameEvent =
   | { type: 'ko'; loser: PlayerId; pos: Vec2 }
   | { type: 'roundEnd'; winner: PlayerId | null }
   | { type: 'matchEnd'; winner: PlayerId }
-  | { type: 'suddenDeath' };
+  | { type: 'suddenDeath' }
+  /** Added by sim: a body softly bumped the ball (no damage). Emitted only above BUMP_EVENT_MIN_SPEED. */
+  | { type: 'bump'; player: PlayerId; pos: Vec2; speed: number };
 
 export type GameEventType = GameEvent['type'];
 
