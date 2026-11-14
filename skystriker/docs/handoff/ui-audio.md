@@ -1,17 +1,52 @@
-# Handoff: Audio + UI + Input (wave 1)
+# Handoff: Audio + UI + Input (wave 1 + pressure pass)
 
 Branch: `claude/skystriker-ui-audio`. Files: `src/input/**`, `src/ui/**`, `src/audio/**`, the crosshair cursor in `index.html`,
 `tests/input/`, `tests/ui/`, `scripts/scenario-ui-hud.mjs`, `scripts/scenario-ui-integ.mjs`.
 No changes to `src/shared/**`, `src/game/**` or `src/main.ts`.
 
-## What's done
+## Pressure pass (latest, built on the lead branch with pause/rematch/mute)
+Built against commit 74d84d3's contract (`phaseDash`, `winded`, `heat`, `finalRush`, `noAura`). The sim rules are being built in parallel, so on this branch everything below is proven with fake events in the test bench.
+
+**What changed**
+- **Input:** **Q** and gamepad **B** now send `phaseDash` (a press, like dash). `guard` is always false.
+- **Aura meter:** every bar has a thin white **notch** at the Phase Dash cost (half a bar). Next to the bars a **PHASE** pill stays dim until you have at least half a bar, then lights up pale blue as **PHASE READY**.
+- **Not enough aura** (`noAura`): your aura bars and the pill flash **red** and shake for about half a second. You hear a soft double **buzz**.
+- **Final Rush** (`finalRush`): a huge orange-red **FINAL RUSH!** callout. The timer turns orange-red and pulses, and the label under it reads **FINAL RUSH**. You hear a low brass stab, a drum hit and a riser, and the music jumps to full intensity.
+- **Heat:** each heat level plays a short rising two-note **sting**, higher per level. At **heat 4** you hear a crackle and see a **MAX HEAT!** callout. Kicks, bounces and close-call whooshes get higher and punchier as the ball heats up.
+- **Phase Dash** (`phaseDash`): a hollow, ghostly swell with a long reverb, clearly different from the free dash's short whoosh. **Winded:** a soft breathy huff.
+- **PAUSED screen = how to play.** The left column lists every control for keyboard+mouse and gamepad. It's generated from the real bindings in `src/input/mapping.ts`, and a unit test fails if they ever disagree. The right column has one line each on ball colour, Phase Dash, Heat, Final Rush, aura and winning. Super is listed as "coming soon".
+
+**How to playtest it (test bench, works now)**
+1. In `skystriker/`, run `npm run dev` and open **http://localhost:5173/src/ui/dev/index.html**. Click once for sound.
+2. Click the **pause** scene, or press **Esc** or **P**: the PAUSED screen shows the full controls table and the rules. Press Esc/P again to close it.
+3. **noaura** scene: the left (orange) player has too little aura. Their meter flashes red and shakes, and their pill reads a dim "PHASE". The right player's pill reads "PHASE READY".
+4. **heat** scene: four quick kicks back and forth. Each one adds a rising sting, and the fourth shows "MAX HEAT!" with a crackle.
+5. **rush** scene: the clock counts down from 21. At 20 the FINAL RUSH! callout slams in, the timer turns orange-red, and the music gets intense.
+6. Sound buttons **Phase dash**, **Winded**, **No aura**, **Heat rally 1-4**, **Hot kick (heat 4)** and **Final Rush** play each sound on its own. Compare **Snap kick** with **Hot kick**: the hot one is higher and harsher.
+7. Fly the orange ring and press **Q**: with half a bar you hear the ghostly phase swell, then a huff (winded). With less, you get the red flash and the buzz. **Space** = the free dash whoosh, then a huff.
+8. In the real game (lead branch + sim rules), the same things happen from real play: Q to phase through a shot, a long rally to hear the ball heat up, and the last 20 s for Final Rush.
+
+**Checks:** typecheck ✓, 129 tests ✓ (input: Q/B → phaseDash and guard always false; controls table vs bindings), build + smoke ✓. `node scripts/scenario-ui-hud.mjs` ✓ now also checks:
+- the controls rows (Phase Dash on Q/B, Kick on Left click/J/RT) and the rules lines;
+- the no-aura flash on P1 only, PHASE READY on P2 only, and a notch on each bar;
+- the MAX HEAT! and FINAL RUSH! callouts, plus the timer's rush style and label;
+- every new sound audible with none clipping (Phase Dash 0.32, Final Rush 0.62, heat-max sting 0.37 peak).
+
+Screenshots I looked at: `ui-11-pause-controls.png` (two-column sheet, readable at 1280×720), `ui-13-no-aura-flash.png` (red, shaking left meter, PHASE READY on the right), `ui-14-max-heat.png`, `ui-15-final-rush.png` (orange-red 20, FINAL RUSH under it). In the real-game smoke shot (`02-playing.png`) both meters show the dim PHASE pill and notches at the start.
+
+**Pressure-pass requests for lead**
+- The sim should emit `noAura` for Q **and** E when short on aura (the HUD and audio handle both actions).
+- The HUD skips any sim callout reading "FINAL RUSH!" or "MAX HEAT!" because it shows its own from the `finalRush`/`heat` events. If the sim also emits callouts for those, only one appears.
+- `PHASE_DASH_COST`, `HEAT_MAX` and `FINAL_RUSH_TICKS` are read from `constants.ts` once the sim adds them. Until then the design defaults are used (50, 4, 20 s), so no change is needed on merge.
+
+## What's done (wave 1)
 **Input (player 1)**
-- Full GDD §10 map: WASD fly, mouse aims, left click / J kick, right click / K trap, Space / Shift dash, E infuse, Q guard, R super.
+- Full GDD §10 map: WASD fly, mouse aims, left click / J kick, right click / K trap, Space / Shift dash, E infuse, Q Phase Dash, R super.
 - Aim is a unit vector from your fighter to the cursor in world space, using the same letterbox maths as the renderer (checked against the render branch's `fit.ts`). Before you touch the mouse, aim is (0,0), so the sim aims at the opponent for you.
 - Diagonals aren't faster. The right-click menu is blocked. Ctrl+R and other browser shortcuts still work. Releasing focus (alt-tab) lets go of every key.
 - Very quick taps (down and up inside one frame) still reach the sim once.
 - Esc / P (pause) and Enter (rematch) are reported to the game loop through `onMenu(cb)`, not as gameplay input.
-- Gamepad (standard mapping): left stick or D-pad fly, right stick aims (auto-aim when centred), RT/RB kick, LT trap, A dash, X infuse, B guard, Y super, Start pause.
+- Gamepad (standard mapping): left stick or D-pad fly, right stick aims (auto-aim when centred), RT/RB kick, LT trap, A dash, X infuse, B Phase Dash, Y super, Start pause.
 - Crosshair cursor over the game.
 
 **HUD** (DOM overlay in `#ui`, scaled to the same letterbox as the arena)
@@ -64,7 +99,6 @@ No changes to `src/shared/**`, `src/game/**` or `src/main.ts`.
 - Screenshots I looked at: the countdown "3" under "ROUND 1"; the damage scene (white chunk on the blue bar, "3 HIT COMBO", FIRE INFUSED tag, 2.9 aura bars glowing); callouts of three sizes with no overlap; the K.O. slam; the round-winner banner; the match result screen; the SD timer; the super banner; and the 4:3 letterbox with the HUD aligned to the arena.
 
 ## Known issues / not done
-- **Pause and rematch aren't wired into the loop** (that's lead code, see below). Esc/P and Enter are detected and reported, and the overlays exist.
 - The stub sim never counts the round timer down, so on this branch alone the in-game timer stays at 90. The real sim does count it down.
 - Gamepad was tested with fake pad objects in unit tests only. No physical pad here.
 - The charge whine is state-driven (the sim has no "charge started" event). The audio module polls the last state it was given every 40 ms, or the loop can call `audio.update(state)` each frame for exact timing.
@@ -79,19 +113,9 @@ None to `src/shared/types.ts`. Extra (additive) members on my modules' return va
 - The audio handles the sim's added `bump` event and `dash.wallKick` flag defensively (no type dependency).
 
 ## Requests for lead
-1. **Pause + rematch wiring** in `main.ts` (needs a `restart()` on the loop for rematch):
-   ```ts
-   const p1 = createKeyboardInput();
-   let paused = false;
-   p1.onMenu((a) => {
-     const phase = game.state().phase;
-     if (phase === 'matchOver' && (a === 'rematch' || a === 'pause')) { game.restart(); return; } // pad Start also rematches
-     if (a === 'pause') { paused = !paused; game.setPaused(paused); hud.setPaused(paused); }
-   });
-   ```
-   `restart()` = `createMatch` again into the same loop (the HUD resets itself when `state.tick` goes backwards or the state is new).
+1. ~~Pause + rematch wiring~~ (done on the lead branch, along with M to mute).
 2. Optional: call `audio.update(state)` once per animation frame next to `hud.update(state)` (tighter charge-whine timing).
-3. Optional: an M key → `audio.setMuted(!muted)`, and a volume setting → `audio.setMasterVolume(v)`.
+3. Optional: a volume setting → `audio.setMasterVolume(v)`.
 4. Music intensity is automatic. If the loop ever calls `setMusicIntensity`, the game takes over from then on.
 5. `src/ui/dev/index.html` is a dev-only page (Vite serves it in dev, it isn't in the production build). Keep it, or exclude `src/ui/dev` from `tsconfig` if you'd rather not typecheck it.
 
@@ -113,4 +137,8 @@ None to `src/shared/types.ts`. Extra (additive) members on my modules' return va
 | `src/audio/mixer.ts` | `PITCH_JITTER` | 0.05 | Random pitch spread on repeats |
 | `src/audio/music.ts` | `MUSIC_BPM` | 128 | Music tempo |
 | `src/audio/engine.ts` | `LOW_HP_MUSIC` | 30 | HP that pushes the music to max intensity |
+| `src/ui/controls.ts` | `PHASE_DASH_COST` / `HEAT_MAX` / `FINAL_RUSH_SECONDS` | 50 / 4 / 20 s | Taken from the sim's constants once they exist; drive the notch, PHASE READY, MAX HEAT! and the rules text |
+| `src/ui/controls.ts` | `controlRows()` / `ruleLines()` | — | Wording of the pause-screen help |
+| `src/ui/index.ts` | `NO_AURA_FLASH` | 0.45 s | How long the meter stays red after a no-aura press |
+| `src/audio/sounds.ts` | `HEAT_PITCH_PER_LEVEL` / `HEAT_GAIN_PER_LEVEL` | 0.07 / 0.1 | How much higher and louder ball sounds get per Heat level |
 | `src/audio/sounds.ts` | per-sound gains | — | Each recipe's last numbers are its loudness. Re-run the scenario to see peaks per sound |
