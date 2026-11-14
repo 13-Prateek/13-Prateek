@@ -1,14 +1,14 @@
 /**
  * Pure input mapping helpers (no DOM). Unit-tested in tests/input/.
  * GDD §10: WASD fly · mouse aim · LMB/J kick · RMB/K trap · Space/Shift dash ·
- * E infuse · Q guard · R super · Esc/P pause.
+ * E infuse · Q phase dash · R super · Esc/P pause. (`guard` is reserved: always false.)
  */
 import { WORLD_H, WORLD_W } from '../shared/constants';
 import type { InputFrame, Vec2 } from '../shared/types';
 
 export type Action =
   | 'up' | 'down' | 'left' | 'right'
-  | 'kick' | 'trap' | 'dash' | 'infuse' | 'guard' | 'super'
+  | 'kick' | 'trap' | 'dash' | 'infuse' | 'phaseDash' | 'super'
   | 'pause' | 'rematch';
 
 /** Menu actions are not part of InputFrame; they are reported through onMenu(). */
@@ -19,7 +19,7 @@ export const KEY_BINDINGS: Readonly<Record<string, Action>> = {
   KeyW: 'up', KeyS: 'down', KeyA: 'left', KeyD: 'right',
   KeyJ: 'kick', KeyK: 'trap',
   Space: 'dash', ShiftLeft: 'dash', ShiftRight: 'dash',
-  KeyE: 'infuse', KeyQ: 'guard', KeyR: 'super',
+  KeyE: 'infuse', KeyQ: 'phaseDash', KeyR: 'super',
   Escape: 'pause', KeyP: 'pause',
   Enter: 'rematch', NumpadEnter: 'rematch',
 };
@@ -90,7 +90,8 @@ export function frameFromActions(held: ReadonlySet<Action>, aim: Vec2 | null, pa
     dash: has('dash'),
     infuse: has('infuse'),
     super: has('super'),
-    guard: has('guard'),
+    guard: false, // reserved since the pressure pass
+    phaseDash: has('phaseDash'),
   };
 }
 
@@ -107,7 +108,7 @@ export const PAD_BUTTONS: ReadonlyArray<[number, Action]> = [
   [5, 'kick'], // RB (alt)
   [0, 'dash'], // A
   [2, 'infuse'], // X
-  [1, 'guard'], // B
+  [1, 'phaseDash'], // B
   [3, 'super'], // Y
   [9, 'pause'], // Start
 ];

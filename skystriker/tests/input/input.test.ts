@@ -71,11 +71,12 @@ describe('aim + movement maths', () => {
     expect(normaliseMove(0.3, 0)).toEqual({ x: 0.3, y: 0 });
   });
   it('frameFromActions maps every action', () => {
-    const all = new Set<Action>(['up', 'right', 'kick', 'trap', 'dash', 'infuse', 'guard', 'super']);
+    const all = new Set<Action>(['up', 'right', 'kick', 'trap', 'dash', 'infuse', 'phaseDash', 'super']);
     const f = frameFromActions(all, { x: 0, y: 1 });
     expect(f.moveX).toBeCloseTo(Math.SQRT1_2);
     expect(f.moveY).toBeCloseTo(-Math.SQRT1_2);
-    expect(f).toMatchObject({ aimX: 0, aimY: 1, kick: true, trap: true, dash: true, infuse: true, guard: true, super: true });
+    expect(f).toMatchObject({ aimX: 0, aimY: 1, kick: true, trap: true, dash: true, infuse: true, phaseDash: true, super: true });
+    expect(f.guard).toBe(false); // reserved since the pressure pass
   });
   it('opposite keys cancel out', () => {
     const f = frameFromActions(new Set<Action>(['left', 'right', 'up']), null);
@@ -100,13 +101,15 @@ describe('createKeyboardInput (GDD §10 map)', () => {
     inp.destroy();
   });
 
-  it('maps J/K/Space/Shift/E/Q/R', () => {
+  it('maps J/K/Space/Shift/E/Q/R (Q = Phase Dash, guard always false)', () => {
     const w = fakeWindow();
     const inp = createKeyboardInput(w);
     const s = stateWithP1At(400, 450);
-    const check = (code: string, field: 'kick' | 'trap' | 'dash' | 'infuse' | 'guard' | 'super') => {
+    const check = (code: string, field: 'kick' | 'trap' | 'dash' | 'infuse' | 'phaseDash' | 'super') => {
       w.dispatchEvent(key('keydown', code));
-      expect(inp.sample(s, 0)[field]).toBe(true);
+      const f = inp.sample(s, 0);
+      expect(f[field]).toBe(true);
+      expect(f.guard).toBe(false);
       w.dispatchEvent(key('keyup', code));
       expect(inp.sample(s, 0)[field]).toBe(false);
     };
@@ -115,7 +118,7 @@ describe('createKeyboardInput (GDD §10 map)', () => {
     check('Space', 'dash');
     check('ShiftLeft', 'dash');
     check('KeyE', 'infuse');
-    check('KeyQ', 'guard');
+    check('KeyQ', 'phaseDash');
     check('KeyR', 'super');
     inp.destroy();
   });
@@ -241,6 +244,11 @@ describe('gamepad (standard mapping)', () => {
     expect(p.moveY).toBeCloseTo(-1);
     expect(p.aim).toEqual({ x: 1, y: 0 });
     expect([...p.held].sort()).toEqual(['dash', 'infuse', 'kick']);
+    const b = readPad(pad([0, 0, 0, 0], [1, 3]))!;
+    expect([...b.held].sort()).toEqual(['phaseDash', 'super']);
+    const f = frameFromActions(new Set(), null, b);
+    expect(f.phaseDash).toBe(true);
+    expect(f.guard).toBe(false);
   });
 
   it('right stick overrides mouse aim; centred stick falls back to auto-aim', () => {
