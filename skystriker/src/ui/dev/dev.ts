@@ -143,6 +143,7 @@ document.getElementById('app')!.appendChild(canvas);
 const g = canvas.getContext('2d')!;
 let lastAim = { x: 0, y: 0 };
 let lastFrameText = '';
+let prevKick = false, prevDash = false;
 
 function stepPlayer() {
   const f = input.sample(s, 0);
@@ -156,6 +157,21 @@ function stepPlayer() {
   if (sp > FIGHTER_MAX_SPEED) { me.vel.x *= FIGHTER_MAX_SPEED / sp; me.vel.y *= FIGHTER_MAX_SPEED / sp; }
   me.pos.x = Math.min(s.arena.right, Math.max(s.arena.left, me.pos.x + me.vel.x * SIM_DT));
   me.pos.y = Math.min(s.arena.bottom, Math.max(s.arena.top, me.pos.y + me.vel.y * SIM_DT));
+  // Stand-in kick/dash so the bench is audible from the keyboard: hold = charge whine, release = swing.
+  if (s.phase === 'playing') {
+    if (f.kick) {
+      if (me.kickPhase !== 'charging') { me.kickPhase = 'charging'; me.charge = 0; }
+      const before = me.charge;
+      me.charge = Math.min(1, me.charge + SIM_DT);
+      if (before < 1 && me.charge >= 1) fire([{ type: 'chargeFull', player: 0 }]);
+    } else if (prevKick) {
+      me.kickPhase = 'idle';
+      fire([{ type: 'kickStart', player: 0, charge: me.charge }]);
+      me.charge = 0;
+    }
+    if (f.dash && !prevDash) fire([{ type: 'dash', player: 0, pos: { ...me.pos }, dir: { x: f.moveX || 1, y: f.moveY } }]);
+  }
+  prevKick = f.kick; prevDash = f.dash;
   const on = (['kick', 'trap', 'dash', 'infuse', 'guard', 'super'] as const).filter((k) => f[k]);
   lastFrameText = `move (${f.moveX.toFixed(2)}, ${f.moveY.toFixed(2)})  aim (${f.aimX.toFixed(2)}, ${f.aimY.toFixed(2)})  held: ${on.join(' ') || '-'}  device: ${input.lastDevice()}`;
 }
@@ -214,6 +230,7 @@ function frame(now: number) {
   }
   draw();
   hud.update(s);
+  audio.update(s);
   const iv = document.getElementById('inputview');
   if (iv) iv.textContent = lastFrameText;
   requestAnimationFrame(frame);
@@ -227,9 +244,11 @@ const SOUNDS: Record<string, () => GameEvent[]> = {
   'Power kick': () => [{ type: 'kick', player: 0, pos: pos(0), dir: { x: 1, y: 0 }, speed: 1700, power: 1, perfect: false, curve: false, element: null }],
   'Curve kick': () => [{ type: 'kick', player: 0, pos: pos(0), dir: { x: 1, y: 0 }, speed: 1200, power: 0.5, perfect: false, curve: true, element: null }],
   'Charge (hold 1s)': () => {
-    at(1.0, () => fire([{ type: 'chargeFull', player: 0 }]));
-    at(1.25, () => fire(SOUNDS['Power kick']()));
-    return [{ type: 'kickStart', player: 0, charge: 0 }];
+    P(0).kickPhase = 'charging'; P(0).charge = 0;
+    at(1.0, () => { P(0).charge = 1; fire([{ type: 'chargeFull', player: 0 }]); });
+    at(1.25, () => { P(0).kickPhase = 'active'; fire([{ type: 'kickStart', player: 0, charge: 1 }, ...SOUNDS['Power kick']()]); });
+    at(1.4, () => { P(0).kickPhase = 'idle'; P(0).charge = 0; });
+    return [];
   },
   Perfect: () => [{ type: 'kick', player: 0, pos: pos(0), dir: { x: 1, y: 0 }, speed: 2200, power: 0.7, perfect: true, curve: false, element: null }, callout('PERFECT!', 0, 2)],
   Bounce: () => [{ type: 'bounce', pos: { x: 1560, y: 300 }, normal: { x: -1, y: 0 }, speed: 1100 }],
@@ -356,7 +375,10 @@ async function renderEach() {
     kickSnap: [{ type: 'kick', player: 0, pos: p0, dir: { x: 1, y: 0 }, speed: 900, power: 0.1, perfect: false, curve: false, element: null }],
     kickPower: [{ type: 'kick', player: 0, pos: p0, dir: { x: 1, y: 0 }, speed: 1700, power: 1, perfect: false, curve: true, element: 'fire' }],
     perfect: [{ type: 'kick', player: 0, pos: p0, dir: { x: 1, y: 0 }, speed: 2200, power: 0.6, perfect: true, curve: false, element: null }],
-    chargeWhine: [{ type: 'kickStart', player: 0, charge: 0 }],
+    chargeWhine: [], // state-driven, see below
+    swing: [{ type: 'kickStart', player: 0, charge: 0.8 }],
+    bump: [{ type: 'bump', player: 0, pos: p0, speed: 500 } as unknown as GameEvent],
+    wallKick: [{ type: 'dash', player: 0, pos: p0, dir: { x: 1, y: 0 }, wallKick: true } as GameEvent],
     chargeFull: [{ type: 'chargeFull', player: 0 }],
     bounce: [{ type: 'bounce', pos: p0, normal: { x: 1, y: 0 }, speed: 900 }],
     hit: [{ type: 'hit', target: 1, attacker: 0, pos: p0, damage: 12, speed: 1300, bank: 0, combo: 1, element: null }],
@@ -382,7 +404,14 @@ async function renderEach() {
     const ctx = new OfflineAudioContext(2, 44100 * 3, 44100);
     const eng = createEngine(ctx);
     eng.mixer.setMaster(0.8, 0);
-    eng.handleEvents(events, st, 0.02);
+    if (name === 'chargeWhine') {
+      const cs = fakeState();
+      cs.phase = 'playing';
+      cs.fighters[0].kickPhase = 'charging';
+      eng.update(cs, 0.02);
+    } else {
+      eng.handleEvents(events, st, 0.02);
+    }
     const buf = await ctx.startRendering();
     let peak = 0;
     for (let c = 0; c < 2; c++) for (const v of buf.getChannelData(c)) peak = Math.max(peak, Math.abs(v));

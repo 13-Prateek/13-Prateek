@@ -27,6 +27,9 @@ export interface Hud extends HudSystem {
   destroy(): void;
 }
 
+/** Callout texts (letters only) that the announcer shows itself. */
+const ANNOUNCER_OWNS = new Set(['KO', 'TIME', 'SUDDENDEATH']);
+
 const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000;
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, parent?: HTMLElement, text?: string) {
@@ -332,7 +335,8 @@ export function createHud(root: HTMLElement): Hud {
     for (const e of events) {
       switch (e.type) {
         case 'callout':
-          callout(e.text, e.player, e.tier, s);
+          // The announcer already shows K.O. / TIME! / SUDDEN DEATH big; don't double them.
+          if (!ANNOUNCER_OWNS.has(e.text.replace(/[^A-Z]/gi, '').toUpperCase())) callout(e.text, e.player, e.tier, s);
           break;
         case 'hit': {
           const ps = panels[e.target], pe = panelsEls[e.target];

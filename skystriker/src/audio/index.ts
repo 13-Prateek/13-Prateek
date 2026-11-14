@@ -21,6 +21,11 @@ const SCHEDULER_MS = 40;
 export interface GameAudio extends AudioSystem {
   /** The live engine once unlocked (dev harness / tests). */
   engine(): Engine | null;
+  /**
+   * Optional per-frame hook for state-driven sounds (the charge whine). Not required:
+   * the module also polls the last state it was given from its own scheduler.
+   */
+  update(state: Readonly<MatchState>): void;
   /** Mute/unmute everything (keeps the master volume setting). */
   setMuted(muted: boolean): void;
   destroy(): void;
@@ -32,6 +37,8 @@ export function createAudio(): GameAudio {
   let muted = false;
   let intensity: 0 | 1 | 2 | null = null;
   let timer: ReturnType<typeof setInterval> | null = null;
+  /** The loop passes the same (mutated-in-place) state every tick; we only ever READ it. */
+  let lastState: Readonly<MatchState> | null = null;
 
   const applyMaster = () => engine?.mixer.setMaster(muted ? 0 : master);
 
@@ -50,13 +57,17 @@ export function createAudio(): GameAudio {
     if (ctx.state !== 'running') void ctx.resume();
     engine.music.start();
     const e = engine;
-    timer = setInterval(() => e.music.scheduleUntil(ctx.currentTime + LOOKAHEAD), SCHEDULER_MS);
+    timer = setInterval(() => {
+      e.music.scheduleUntil(ctx.currentTime + LOOKAHEAD);
+      if (lastState && ctx.state === 'running') e.update(lastState);
+    }, SCHEDULER_MS);
     e.music.scheduleUntil(ctx.currentTime + LOOKAHEAD);
   }
 
   return {
     unlock,
     onEvents(events: readonly GameEvent[], state: Readonly<MatchState>) {
+      lastState = state;
       if (!engine || engine.ctx.state !== 'running') return;
       engine.handleEvents(events, state);
     },
@@ -67,6 +78,10 @@ export function createAudio(): GameAudio {
     setMusicIntensity(level: 0 | 1 | 2) {
       intensity = level;
       engine?.setIntensity(level);
+    },
+    update(state: Readonly<MatchState>) {
+      lastState = state;
+      if (engine && engine.ctx.state === 'running') engine.update(state);
     },
     setMuted(m: boolean) { muted = m; applyMaster(); },
     engine: () => engine,

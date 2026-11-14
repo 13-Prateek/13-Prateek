@@ -53,28 +53,29 @@ export function createSounds(m: Mixer) {
       if (element) elementLayer(element, t, pan, 0.6 + 0.4 * p);
     },
     /** Rising whine while a kick charges. Stopped by stopCharge. */
-    startCharge(t: number, player: PlayerId, pos?: Vec2) {
+    startCharge(t: number, player: PlayerId, pos?: Vec2, charge0 = 0) {
       api.stopCharge(t, player);
-      const v = m.voice(`charge${player}`, t, 1.7, { pan: panOf(pos), max: 1, prio: 2 });
+      const c0 = clamp01(charge0), rise = Math.max(0.05, 1 - c0); // seconds left until full
+      const v = m.voice(`charge${player}`, t, rise + 0.7, { pan: panOf(pos), max: 1, prio: 2 });
       if (!v) return;
       const osc = m.ctx.createOscillator(), osc2 = m.ctx.createOscillator();
       osc.type = 'sawtooth'; osc2.type = 'square';
-      osc.frequency.setValueAtTime(170, t);
-      osc.frequency.linearRampToValueAtTime(680, t + 1.0);
-      osc2.frequency.setValueAtTime(171.5, t);
-      osc2.frequency.linearRampToValueAtTime(684, t + 1.0);
+      osc.frequency.setValueAtTime(170 + 510 * c0, t);
+      osc.frequency.linearRampToValueAtTime(680, t + rise);
+      osc2.frequency.setValueAtTime(171.5 + 512 * c0, t);
+      osc2.frequency.linearRampToValueAtTime(684, t + rise);
       const f = m.ctx.createBiquadFilter();
       f.type = 'lowpass'; f.Q.value = 6;
-      f.frequency.setValueAtTime(600, t);
-      f.frequency.linearRampToValueAtTime(3200, t + 1.0);
+      f.frequency.setValueAtTime(600 + 2600 * c0, t);
+      f.frequency.linearRampToValueAtTime(3200, t + rise);
       const g = m.ctx.createGain();
       g.gain.setValueAtTime(0, t);
-      g.gain.setValueAtTime(0, t + 0.11); // taps never get far enough to whine
-      g.gain.linearRampToValueAtTime(0.045, t + 1.0);
-      g.gain.linearRampToValueAtTime(0.032, t + 1.4);
-      g.gain.linearRampToValueAtTime(0, t + 1.65);
+      g.gain.linearRampToValueAtTime(0.012 + 0.033 * c0, t + 0.06);
+      g.gain.linearRampToValueAtTime(0.045, t + rise);
+      g.gain.linearRampToValueAtTime(0.032, t + rise + 0.4);
+      g.gain.linearRampToValueAtTime(0, t + rise + 0.65);
       osc.connect(f); osc2.connect(f); f.connect(g).connect(v.out);
-      osc.start(t); osc2.start(t); osc.stop(t + 1.7); osc2.stop(t + 1.7);
+      osc.start(t); osc2.start(t); osc.stop(t + rise + 0.7); osc2.stop(t + rise + 0.7);
       v.srcs.push(osc, osc2);
       charging[player] = { v };
     },
@@ -82,7 +83,27 @@ export function createSounds(m: Mixer) {
       const c = charging[player];
       if (c) { m.kill(c.v, t); charging[player] = null; }
     },
-    isCharging: (p: PlayerId) => !!charging[p] && charging[p]!.v.end > m.ctx.currentTime,
+    /** Leg swing when a kick goes active (fires even on a whiff); bigger with charge. */
+    swing(t: number, charge: number, pos?: Vec2) {
+      const c = clamp01(charge);
+      const v = m.voice('swing', t, 0.25, { pan: panOf(pos), max: 2, prio: 1 });
+      if (!v) return;
+      m.noise(v, t, 0.12 + 0.08 * c, 0.24 + 0.3 * c, { type: 'bandpass', f0: 900 * jitter(), f1: 3200, q: 1.4, attack: 0.02 });
+    },
+    /** Body softly pushing the ball (no damage). */
+    bump(t: number, speed: number, pos?: Vec2) {
+      const a = clamp01(speed / 800);
+      const v = m.voice('bump', t, 0.12, { pan: panOf(pos), max: 2, prio: 0 });
+      if (!v) return;
+      m.tone(v, 'sine', t, 0.08, 220 * jitter(), 120, 0.12 + 0.2 * a);
+    },
+    /** Wall kick-off: dash plus a solid push off the wall. */
+    wallKick(t: number, pos?: Vec2) {
+      const v = m.voice('wallkick', t, 0.3, { pan: panOf(pos), max: 2, prio: 3 });
+      if (!v) return;
+      m.tone(v, 'sine', t, 0.18, 180, 60, 0.6);
+      m.noise(v, t, 0.06, 0.3, { type: 'lowpass', f0: 1800 });
+    },
     chargeFull(t: number, pos?: Vec2) {
       const v = m.voice('chargeFull', t, 0.5, { pan: panOf(pos), max: 2, prio: 3, reverb: 0.2 });
       if (!v) return;
