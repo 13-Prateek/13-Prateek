@@ -22,8 +22,10 @@ All numbers live in `src/shared/constants.ts`. This doc describes intent.
 
 ## 2. Fighters and movement
 - **Free 360° flight with momentum.** Movement accelerates toward the input direction, has a capped speed, and drifts under drag. There's no flight bar.
-- **Dash** on a press: a short burst in the move direction (or facing direction when not moving). It has a cooldown, and the first few ticks are **invulnerable**.
+- **Dash** (free) on a press: a short burst in the move direction (or facing direction when not moving). It has a cooldown, is **not** invulnerable, and leaves you **Winded** (slowed) for a moment afterwards. It's for repositioning and reading shots early, not a panic button.
+- **Phase Dash** (costs aura, see §7): the same burst, but **invulnerable for its whole duration** (the ball passes through you), followed by a longer Winded slow-down. Shares the dash cooldown.
 - **Wall kick-off:** dashing while touching a wall launches you away from it at `WALL_KICKOFF_SPEED`.
+- *Why (pressure pass, after the first playtest):* in open zero-gravity space, flying sideways already dodges slow shots, and a free invulnerable dash made dodging the default. Dodging must cost commitment or meter.
 - Body hurtbox: a circle of `FIGHTER_BODY_RADIUS`.
 
 ## 3. The ball: three modes
@@ -36,6 +38,7 @@ All numbers live in `src/shared/constants.ts`. This doc describes intent.
 - After a kick the ball is `live` with `owner = kicker`. It returns to `neutral` when its speed falls below `BALL_LIVE_MIN_SPEED`.
 - `bounces` counts wall bounces since the last kick and resets on each kick.
 - Spin bends the trajectory: acceleration is perpendicular to velocity, proportional to spin, and spin decays over time.
+- **Rally Heat (0–4):** each time a live ball is kicked back by the *other* player (a return), Heat goes up by 1 and the ball flies `HEAT_SPEED_PER_LEVEL` faster per level. Heat resets to 0 when the ball hits someone or goes neutral. Long rallies escalate until someone breaks. Shown by the ball's glow and the pitch of its sound.
 
 ## 4. Hit vs. kick resolution (the core rule)
 Each tick, in this order:
@@ -71,11 +74,13 @@ Kick direction is the aim direction from the input. If none is given, it aims at
 ## 7. Aura (3 bars)
 - Gained from kicks, perfect returns, close calls, hits landed and (less) hits taken, all scaled by hero `auraGain`.
 - Wave 1: **Infuse** (1 bar). The next kick carries your element: the ball's `element` is set, its colour changes, and damage gets ×1.2.
-- Wave 2: **Guard** (2 bars) for a defensive super, and **Super** (3 bars) for a super shot with the cinematic cut-in and power struggle.
+- **Phase Dash** (half a bar, Q): the invulnerable dodge (§2). It replaces the old Guard idea as the defensive aura spend. Dodging with it does not earn close-call aura.
+- Wave 2: **Super** (3 bars) for a super shot with the cinematic cut-in and power struggle.
 
 ## 8. Match flow
 - Best of 3 (`roundsToWin = 2`). Each round has a 3-second countdown (ball spawns at the centre, fighters at ¼ and ¾), then `ROUND_TIME`.
 - KO: hp ≤ 0 gives `HITSTOP_KO`, a slow-mo KO event, then `roundOver` for `ROUND_OVER_TICKS`, then the next round or `matchOver`.
+- **Final Rush:** the last 20 s of a round. A "FINAL RUSH!" callout, the ball's Heat never drops below 1, and the walls start closing in, so rounds rarely reach the timer quietly.
 - Timeout: the player with higher HP wins. If HP is equal, **sudden death** starts: ball speed ×1.25 and the walls slowly close in.
 
 ## 9. AI (wave 2)
@@ -90,8 +95,8 @@ Kick direction is the aim direction from the input. If none is given, it aims at
 | Aim | Mouse (direction from fighter to cursor) | Right stick |
 | Kick | Left click / J | RT |
 | Trap | Right click / K | LT |
-| Dash | Space / Shift | A |
-| Infuse / Guard / Super | E / Q / R | X / B / Y |
+| Dash (free) | Space / Shift | A |
+| Infuse / Phase Dash / Super | E / Q / R | X / B / Y |
 | Pause | Esc / P | Start |
 
 ## 11. Feel ("juice") requirements

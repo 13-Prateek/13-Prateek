@@ -45,8 +45,16 @@ export interface InputFrame {
   infuse: boolean;
   /** Spend 3 aura bars: super shot (press edge). Wave 2 feature. */
   super: boolean;
-  /** Spend 2 aura bars: defensive super (press edge). Wave 2 feature. */
+  /**
+   * RESERVED / unused since the pressure pass: the Q key and pad B now drive `phaseDash`.
+   * Kept so nothing breaks; input sources should send false.
+   */
   guard: boolean;
+  /**
+   * Pressure pass (lead): Phase Dash (press edge). Costs PHASE_DASH_COST aura: an
+   * invulnerable dash, then a longer Winded slow-down. Q / pad B.
+   */
+  phaseDash?: boolean;
 }
 
 export const EMPTY_INPUT: Readonly<InputFrame> = Object.freeze({
@@ -102,6 +110,10 @@ export interface FighterState {
   trapLock?: boolean;
   /** (sim-internal, added by sim) Close-call tracker for the current enemy ball pass: 0 idle, 1 in zone, 2 spent. */
   closeCall?: 0 | 1 | 2;
+  /** Pressure pass (lead): ticks left of the post-dash slow-down (moving at reduced speed). 0/undefined = not winded. */
+  winded?: number;
+  /** Pressure pass (lead): ticks left of the current PHASE dash (invulnerable, ghosted). 0/undefined = not phasing. */
+  phaseDashTimer?: number;
 }
 
 export type BallMode = 'neutral' | 'live' | 'super';
@@ -125,6 +137,11 @@ export interface BallState {
   heldTicks: number;
   /** (sim-internal, added by sim) Ticks left in which a fresh kick flies without drag. */
   cruise?: number;
+  /**
+   * Pressure pass (lead): rally Heat 0..HEAT_MAX. +1 each time a live ball is returned by
+   * the other player (more speed). Resets on a hit or when the ball goes neutral.
+   */
+  heat?: number;
 }
 
 export type MatchPhase = 'countdown' | 'playing' | 'roundOver' | 'matchOver';
@@ -157,6 +174,8 @@ export interface MatchState {
   rng: number;
   /** Previous tick inputs (for edge detection). */
   prevInput: [InputFrame, InputFrame];
+  /** Pressure pass (lead): the last FINAL_RUSH_TICKS of a round (heat floor, walls closing). */
+  finalRush?: boolean;
 }
 
 /* ------------------------------------------------------------------ */
@@ -211,7 +230,17 @@ export type GameEvent =
   | { type: 'matchEnd'; winner: PlayerId }
   | { type: 'suddenDeath' }
   /** Added by sim: a body softly bumped the ball (no damage). Emitted only above BUMP_EVENT_MIN_SPEED. */
-  | { type: 'bump'; player: PlayerId; pos: Vec2; speed: number };
+  | { type: 'bump'; player: PlayerId; pos: Vec2; speed: number }
+  /** Pressure pass (lead): a Phase Dash started (invulnerable; aura already spent). */
+  | { type: 'phaseDash'; player: PlayerId; pos: Vec2; dir: Vec2 }
+  /** Pressure pass (lead): a fighter's dash ended and they are Winded (slowed) for `ticks`. */
+  | { type: 'winded'; player: PlayerId; ticks: number }
+  /** Pressure pass (lead): the ball's rally Heat changed (level 0 = reset). */
+  | { type: 'heat'; level: number; pos: Vec2 }
+  /** Pressure pass (lead): the round entered its Final Rush. */
+  | { type: 'finalRush' }
+  /** Pressure pass (lead): an aura action was pressed without enough aura (UI flashes the meter, soft buzz). */
+  | { type: 'noAura'; player: PlayerId; action: 'phaseDash' | 'infuse' };
 
 export type GameEventType = GameEvent['type'];
 
