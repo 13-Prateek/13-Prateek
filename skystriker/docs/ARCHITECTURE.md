@@ -16,6 +16,7 @@ TypeScript · Vite · PixiJS 8 (WebGL) · pixi-filters (glow/bloom/shockwave) ·
 - **Presentation never changes the state.** Render, audio and HUD only read the state and react to events.
 - **Events are the only bridge** for one-off moments (a kick, a hit, a callout). If presentation needs to know "this happened", the sim must emit an event.
 - Hitstop is stored in the sim state (`state.hitstop`). The renderer may *add* purely visual slow-mo on top.
+- **Screen layout is shared:** `src/shared/layout.ts` (`computeFit`, `screenToWorld`, `HUD_BAND`) is the only place that decides where the world sits on screen. The renderer, mouse aim and HUD all use it. The screen fits a `HUD_BAND`-tall strip for the HUD *above* the 1600×900 world, so the HUD never covers the arena. Never write your own letterbox math.
 
 ## Module ownership
 | Path | Owner session | Branch |

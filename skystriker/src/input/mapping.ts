@@ -3,7 +3,6 @@
  * GDD §10: WASD fly · mouse aim · LMB/J kick · RMB/K trap · Space/Shift dash ·
  * E infuse · Q phase dash · R super · Esc/P pause. (`guard` is reserved: always false.)
  */
-import { WORLD_H, WORLD_W } from '../shared/constants';
 import type { InputFrame, Vec2 } from '../shared/types';
 
 export type Action =
@@ -29,21 +28,11 @@ export const MOUSE_BINDINGS: Readonly<Record<number, Action>> = { 0: 'kick', 2: 
 
 export const isMenuAction = (a: Action): a is MenuAction => a === 'pause' || a === 'rematch';
 
-/** Letterbox fit — identical maths to the renderer's `fit()` (src/render/index.ts). */
-export interface Fit {
-  scale: number;
-  offsetX: number;
-  offsetY: number;
-}
-
-export function computeFit(viewW: number, viewH: number, worldW = WORLD_W, worldH = WORLD_H): Fit {
-  const scale = Math.max(1e-6, Math.min(viewW / worldW, viewH / worldH));
-  return { scale, offsetX: (viewW - worldW * scale) / 2, offsetY: (viewH - worldH * scale) / 2 };
-}
-
-export function screenToWorld(sx: number, sy: number, fit: Fit): Vec2 {
-  return { x: (sx - fit.offsetX) / fit.scale, y: (sy - fit.offsetY) / fit.scale };
-}
+/**
+ * Screen ↔ world placement comes from the lead's shared layout (`src/shared/layout.ts`),
+ * the same function the renderer and HUD use, so mouse aim always matches the picture.
+ */
+export { computeFit, screenToWorld, type Fit } from '../shared/layout';
 
 /** Cursor closer than this to the fighter (world units) keeps the previous aim, so it doesn't jitter. */
 export const AIM_DEADZONE = 8;

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { WORLD_H, WORLD_W } from '../../src/shared/constants';
+import { HUD_BAND } from '../../src/shared/layout';
 import type { MatchState } from '../../src/shared/types';
 import {
   aimFromCursor, computeFit, createKeyboardInput, deadzone, frameFromActions, normaliseMove,
@@ -24,34 +25,18 @@ const mouse = (type: string, x: number, y: number, button = 0, buttons?: number)
 const stateWithP1At = (x: number, y: number) =>
   ({ fighters: [{ pos: { x, y } }, { pos: { x: 1200, y: 450 } }] }) as unknown as MatchState;
 
-describe('letterbox fit + screen→world', () => {
-  it('matches the world exactly at 1600×900', () => {
-    const f = computeFit(1600, 900);
-    expect(f).toEqual({ scale: 1, offsetX: 0, offsetY: 0 });
-    expect(screenToWorld(800, 450, f)).toEqual({ x: 800, y: 450 });
-  });
-
-  it('pillarboxes a 4:3 window (bars top/bottom)', () => {
-    const f = computeFit(1200, 900); // width-limited: scale 0.75, world height 675, offsetY 112.5
-    expect(f.scale).toBeCloseTo(0.75);
-    expect(f.offsetX).toBeCloseTo(0);
-    expect(f.offsetY).toBeCloseTo(112.5);
-    const w = screenToWorld(600, 112.5 + 675 / 2, f);
-    expect(w.x).toBeCloseTo(WORLD_W / 2);
-    expect(w.y).toBeCloseTo(WORLD_H / 2);
-    // Top-left corner of the world on screen.
-    const tl = screenToWorld(0, 112.5, f);
-    expect(tl.x).toBeCloseTo(0);
-    expect(tl.y).toBeCloseTo(0);
-  });
-
-  it('letterboxes an ultrawide window (bars left/right)', () => {
-    const f = computeFit(2560, 720); // height-limited: scale 0.8, world width 1280, offsetX 640
-    expect(f.scale).toBeCloseTo(0.8);
-    expect(f.offsetX).toBeCloseTo(640);
-    const br = screenToWorld(640 + 1280, 720, f);
-    expect(br.x).toBeCloseTo(WORLD_W);
-    expect(br.y).toBeCloseTo(WORLD_H);
+describe('letterbox fit + screen→world (shared layout, HUD band above the arena)', () => {
+  it('maps the world corners and centre back exactly on several screen shapes', () => {
+    for (const [w, h] of [[1600, 900], [1280, 720], [1200, 900], [2560, 720], [1000, 1400]]) {
+      const f = computeFit(w, h);
+      expect(f.offsetY).toBeGreaterThanOrEqual(HUD_BAND * f.scale - 1e-6); // room for the HUD above
+      const tl = screenToWorld(f.offsetX, f.offsetY, f);
+      expect(tl.x).toBeCloseTo(0); expect(tl.y).toBeCloseTo(0);
+      const c = screenToWorld(f.offsetX + (WORLD_W / 2) * f.scale, f.offsetY + (WORLD_H / 2) * f.scale, f);
+      expect(c.x).toBeCloseTo(WORLD_W / 2); expect(c.y).toBeCloseTo(WORLD_H / 2);
+      const br = screenToWorld(f.offsetX + WORLD_W * f.scale, f.offsetY + WORLD_H * f.scale, f);
+      expect(br.x).toBeCloseTo(WORLD_W); expect(br.y).toBeCloseTo(WORLD_H);
+    }
   });
 });
 
@@ -160,18 +145,19 @@ describe('createKeyboardInput (GDD §10 map)', () => {
   });
 
   it('aims from P1 to the cursor in world space through the letterbox', () => {
-    // 1200×900 window → scale 0.75, 112.5 px bars top and bottom.
     const w = fakeWindow(1200, 900);
+    const fit = computeFit(1200, 900);
+    const scr = (x: number, y: number) => [fit.offsetX + x * fit.scale, fit.offsetY + y * fit.scale] as const;
     const inp = createKeyboardInput(w);
     // No mouse yet → aim 0,0 so the sim auto-aims at the opponent.
     expect(inp.sample(stateWithP1At(400, 450), 0)).toMatchObject({ aimX: 0, aimY: 0 });
-    // Cursor at world (800, 450) = screen (600, 450).
-    w.dispatchEvent(mouse('mousemove', 600, 450));
+    // Cursor on world (800, 450) → straight right from P1.
+    w.dispatchEvent(mouse('mousemove', ...scr(800, 450)));
     let f = inp.sample(stateWithP1At(400, 450), 0);
     expect(f.aimX).toBeCloseTo(1);
     expect(f.aimY).toBeCloseTo(0);
-    // Cursor at world (400, 50) = screen (300, 112.5 + 37.5) → straight up from P1.
-    w.dispatchEvent(mouse('mousemove', 300, 150));
+    // Cursor on world (400, 50) → straight up from P1.
+    w.dispatchEvent(mouse('mousemove', ...scr(400, 50)));
     f = inp.sample(stateWithP1At(400, 450), 0);
     expect(f.aimX).toBeCloseTo(0);
     expect(f.aimY).toBeCloseTo(-1);
@@ -183,10 +169,12 @@ describe('createKeyboardInput (GDD §10 map)', () => {
 
   it('keeps the previous aim when the cursor sits on the fighter', () => {
     const w = fakeWindow();
+    const fit = computeFit(1600, 900);
+    const scr = (x: number, y: number) => [fit.offsetX + x * fit.scale, fit.offsetY + y * fit.scale] as const;
     const inp = createKeyboardInput(w);
-    w.dispatchEvent(mouse('mousemove', 600, 450));
+    w.dispatchEvent(mouse('mousemove', ...scr(600, 450)));
     expect(inp.sample(stateWithP1At(400, 450), 0).aimX).toBeCloseTo(1);
-    w.dispatchEvent(mouse('mousemove', 401, 451));
+    w.dispatchEvent(mouse('mousemove', ...scr(401, 451)));
     expect(inp.sample(stateWithP1At(400, 450), 0).aimX).toBeCloseTo(1);
     inp.destroy();
   });

@@ -2,7 +2,11 @@
  * HUD stylesheet, injected once by createHud() so the HUD also works in the
  * dev harness page. Everything is authored in WORLD pixels (1600×900) inside
  * .ss-frame, which is scaled to the same letterbox as the renderer.
+ * The top bar sits in the HUD band ABOVE the world (negative top), so it never
+ * covers the arena (lead: src/shared/layout.ts HUD_BAND).
  */
+import { HUD_BAND } from '../shared/layout';
+
 export const HUD_CSS = /* css */ `
 .ss-frame { position:absolute; left:0; top:0; width:1600px; height:900px; transform-origin:0 0;
   pointer-events:none; color:#e8f1ff; user-select:none;
@@ -11,7 +15,7 @@ export const HUD_CSS = /* css */ `
 .ss-out { -webkit-text-stroke:4px #05060d; paint-order:stroke fill; }
 
 /* ---------------- top bar ---------------- */
-.ss-top { position:absolute; top:14px; left:26px; right:26px; height:110px; display:flex; align-items:flex-start; justify-content:space-between; }
+.ss-top { position:absolute; top:${14 - HUD_BAND}px; left:26px; right:26px; height:110px; display:flex; align-items:flex-start; justify-content:space-between; }
 .ss-panel { width:640px; display:flex; flex-direction:column; gap:7px; }
 .ss-panel.p2 { align-items:flex-end; }
 .ss-namerow { display:flex; align-items:center; gap:14px; height:30px; }

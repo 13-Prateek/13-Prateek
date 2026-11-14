@@ -1,20 +1,14 @@
-import { WORLD_H, WORLD_W } from '../shared/constants';
 import type { Vec2 } from '../shared/types';
+import { computeFit as layoutFit, screenToWorld as layoutToWorld, type Fit } from '../shared/layout';
 
-/** How the 1600x900 world is letterboxed into the screen (CSS pixels). */
-export interface Fit {
-  scale: number;
-  offsetX: number;
-  offsetY: number;
-}
+export type { Fit };
 
-/** Same math as the original stub: uniform scale, centred, letterboxed. */
+/**
+ * How the 1600x900 world is placed on screen (CSS pixels). Delegates to the lead's
+ * shared layout (`src/shared/layout.ts`), which reserves a HUD band above the arena.
+ */
 export function computeFit(screenW: number, screenH: number, out: Fit = { scale: 1, offsetX: 0, offsetY: 0 }): Fit {
-  const s = Math.min(screenW / WORLD_W, screenH / WORLD_H);
-  out.scale = s;
-  out.offsetX = (screenW - WORLD_W * s) / 2;
-  out.offsetY = (screenH - WORLD_H * s) / 2;
-  return out;
+  return layoutFit(screenW, screenH, out);
 }
 
 /**
@@ -22,8 +16,5 @@ export function computeFit(screenW: number, screenH: number, out: Fit = { scale:
  * Ignores the purely visual shake / zoom punch, so aiming never wobbles.
  */
 export function screenToWorld(sx: number, sy: number, screenW: number, screenH: number, out: Vec2 = { x: 0, y: 0 }): Vec2 {
-  const s = Math.min(screenW / WORLD_W, screenH / WORLD_H);
-  out.x = (sx - (screenW - WORLD_W * s) / 2) / s;
-  out.y = (sy - (screenH - WORLD_H * s) / 2) / s;
-  return out;
+  return layoutToWorld(sx, sy, layoutFit(screenW, screenH), out);
 }
