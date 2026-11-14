@@ -1,6 +1,7 @@
 /** Kick toolkit: snap / power kick state machine, curve shots, perfect timing, trap & dribble. */
 import {
-  AURA_GAIN_KICK, AURA_GAIN_PERFECT, CURVE_MIN_CROSS, CURVE_MIN_MOVE, CURVE_SPIN, FIGHTER_BODY_RADIUS,
+  AURA_GAIN_KICK, AURA_GAIN_PERFECT, BALL_CRUISE_TICKS, CURVE_MIN_CHARGE, CURVE_MIN_CROSS, CURVE_MIN_MOVE, CURVE_SPIN,
+  FIGHTER_BODY_RADIUS,
   HITSTOP_KICK, HITSTOP_PERFECT, HITSTOP_POWER_BONUS, KICK_ACTIVE_TICKS, KICK_CHARGE_FULL, KICK_CHARGE_START,
   KICK_RECOVERY_TICKS, PERFECT_SPEED_MULT, POWER_KICK_MAX_SPEED, SIM_DT, SNAP_KICK_SPEED,
   SUDDEN_DEATH_BALL_MULT, TRAP_CATCH_MAX_SPEED, TRAP_DROP_SPEED, TRAP_MAX_TICKS, TRAP_POP_SPEED,
@@ -10,7 +11,7 @@ import type { BallState, FighterState, GameEvent, InputFrame, MatchState, Vec2 }
 import { clamp, cross, dist, lerp, norm, rand } from '../shared/vec';
 import { maxBallSpeed } from './ball';
 import type { Edges } from './fighter';
-import { addHitstop, callout, copy, dangerOf, footPos, gainAura, heroOf, isEnemyLive, moveVec } from './util';
+import { addHitstop, callout, copy, footPos, gainAura, heroOf, isEnemyLive, kickPower, moveVec } from './util';
 
 /** Charge 0..1 from ticks held: 0 until KICK_CHARGE_START, 1 at KICK_CHARGE_FULL. */
 export const chargeFromHeld = (held: number): number =>
@@ -85,10 +86,11 @@ export function kickBall(state: MatchState, f: FighterState, move: Vec2, events:
   if (perfect) speed *= PERFECT_SPEED_MULT;
   speed = Math.min(speed, maxBallSpeed(state));
 
-  // Curve shot: kicking while moving sideways to the aim bends the ball toward the move side.
+  // Curve shot (deliberate only): a charged kick released while moving sideways to the aim bends
+  // the ball toward the move side, by at most CURVE_BEND × control in total. Snap kicks fly straight.
   let curve = false;
   let spin = 0;
-  if (Math.hypot(move.x, move.y) >= CURVE_MIN_MOVE) {
+  if (f.charge >= CURVE_MIN_CHARGE && Math.hypot(move.x, move.y) >= CURVE_MIN_MOVE) {
     const c = cross(dir, norm(move));
     if (Math.abs(c) >= CURVE_MIN_CROSS) {
       curve = true;
@@ -101,6 +103,7 @@ export function kickBall(state: MatchState, f: FighterState, move: Vec2, events:
   b.mode = 'live';
   b.owner = f.id;
   b.bounces = 0;
+  b.cruise = BALL_CRUISE_TICKS;
   b.element = f.infused ? f.element : null;
   f.infused = false;
   // Never leave the ball inside the kicker's own body.
@@ -116,7 +119,7 @@ export function kickBall(state: MatchState, f: FighterState, move: Vec2, events:
   f.kickTimer = KICK_RECOVERY_TICKS;
   f.charge = 0;
   events.push({
-    type: 'kick', player: f.id, pos: copy(b.pos), dir: copy(dir), speed, power: dangerOf(speed),
+    type: 'kick', player: f.id, pos: copy(b.pos), dir: copy(dir), speed, power: kickPower(speed),
     perfect, curve, element: b.element,
   });
   if (perfect) {
@@ -163,6 +166,7 @@ export function updateTrap(state: MatchState, f: FighterState, inp: InputFrame, 
   b.element = null;
   b.spin = 0;
   b.bounces = 0;
+  b.cruise = 0;
   f.trapping = true;
   events.push({ type: 'trap', player: f.id, pos: copy(b.pos) });
 }

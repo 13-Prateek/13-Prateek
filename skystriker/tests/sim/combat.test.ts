@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { computeDamage } from '../../src/sim/combat';
 import {
-  AURA_GAIN_CLOSE_CALL, AURA_GAIN_HIT_LANDED, AURA_GAIN_HIT_TAKEN, AURA_GAIN_KICK, COMBO_MAX_HITS, HITSTOP_HIT,
-  HITSTUN_TICKS,
+  AURA_GAIN_CLOSE_CALL, AURA_GAIN_HIT_LANDED, AURA_GAIN_HIT_TAKEN, AURA_GAIN_KICK, BALL_LIVE_MIN_SPEED, COMBO_MAX_HITS,
+  DAMAGE_MAX_SPEED, DAMAGE_MIN_SPEED, HITSTOP_HIT, HITSTUN_TICKS,
   MAX_HP, WALL_SPLAT_DAMAGE,
 } from '../../src/shared/constants';
 import { clearHitstop, ofType, park, playing, run, setBall, step, tapKick } from './helpers';
@@ -13,27 +13,29 @@ describe('damage formula (GDD §6)', () => {
   const dmg = (speed: number, bounces = 0, infused = false, a = kael, v = yuki) =>
     computeDamage(speed, bounces, a, v, infused).damage;
 
-  it('scales linearly from DAMAGE_MIN at live speed to DAMAGE_MAX at max power, × hero power', () => {
-    expect(dmg(420)).toBe(4); // 4 × 1.1 = 4.4
-    expect(dmg(1700)).toBe(18); // 16 × 1.1 = 17.6
-    expect(dmg(1700, 0, false, yuki, kael)).toBe(15); // 16 × 0.95 = 15.2
+  it('scales linearly from DAMAGE_MIN to DAMAGE_MAX between the damage speeds, × hero power', () => {
+    expect(dmg(BALL_LIVE_MIN_SPEED)).toBe(4); // floor: 4 × 1.1 = 4.4
+    expect(dmg(DAMAGE_MIN_SPEED)).toBe(4);
+    expect(dmg(DAMAGE_MAX_SPEED)).toBe(18); // 16 × 1.1 = 17.6
+    expect(dmg(DAMAGE_MAX_SPEED, 0, false, yuki, kael)).toBe(15); // 16 × 0.95 = 15.2
+    expect(dmg(1900)).toBe(17); // full power kick at point blank: (4 + 12 × 0.931) × 1.1
   });
-  it('keeps rising above max power (perfect returns hit harder through speed alone)', () => {
-    expect(dmg(2550)).toBe(26); // (4 + 12 × 1.664) × 1.1
+  it('keeps rising above DAMAGE_MAX_SPEED (perfect returns hit harder through speed alone)', () => {
+    expect(dmg(2600)).toBe(23); // (4 + 12 × 1.417) × 1.1
   });
   it('bank bonus +15% per bounce, max 2', () => {
-    expect(dmg(1700, 1)).toBe(20); // 17.6 × 1.15
-    expect(dmg(1700, 2)).toBe(23); // 17.6 × 1.3
-    expect(dmg(1700, 5)).toBe(23);
+    expect(dmg(DAMAGE_MAX_SPEED, 1)).toBe(20); // 17.6 × 1.15
+    expect(dmg(DAMAGE_MAX_SPEED, 2)).toBe(23); // 17.6 × 1.3
+    expect(dmg(DAMAGE_MAX_SPEED, 5)).toBe(23);
   });
   it('infuse ×1.2', () => {
-    expect(dmg(1700, 0, true)).toBe(21);
+    expect(dmg(DAMAGE_MAX_SPEED, 0, true)).toBe(21);
   });
   it('combo scaling uses the hits already taken in this hitstun', () => {
     const v = { ...yuki, hitstun: 5, comboAgainst: 1 };
-    expect(computeDamage(1700, 0, kael, v, false).damage).toBe(14); // 17.6 × 0.8
-    expect(computeDamage(1700, 0, kael, { ...v, comboAgainst: 9 }, false).damage).toBe(7); // × 0.4 floor
-    expect(computeDamage(1700, 0, kael, { ...v, hitstun: 0, comboAgainst: 3 }, false).damage).toBe(18);
+    expect(computeDamage(DAMAGE_MAX_SPEED, 0, kael, v, false).damage).toBe(14); // 17.6 × 0.8
+    expect(computeDamage(DAMAGE_MAX_SPEED, 0, kael, { ...v, comboAgainst: 9 }, false).damage).toBe(7); // × 0.4 floor
+    expect(computeDamage(DAMAGE_MAX_SPEED, 0, kael, { ...v, hitstun: 0, comboAgainst: 3 }, false).damage).toBe(18);
   });
 });
 

@@ -1,6 +1,7 @@
 /** Small sim-internal helpers. Pure, deterministic. */
 import {
-  AURA_MAX, AURA_PER_BAR, BALL_LIVE_MIN_SPEED, FIGHTER_BODY_RADIUS, FOOT_REACH, POWER_KICK_MAX_SPEED,
+  AURA_MAX, AURA_PER_BAR, BALL_LIVE_MIN_SPEED, DAMAGE_MAX_SPEED, DAMAGE_MIN_SPEED, FIGHTER_BODY_RADIUS, FOOT_REACH,
+  POWER_KICK_MAX_SPEED,
 } from '../shared/constants';
 import { HEROES, type HeroDef } from '../shared/heroes';
 import type { BallState, FighterState, GameEvent, InputFrame, MatchState, PlayerId, Vec2 } from '../shared/types';
@@ -59,9 +60,12 @@ export const isEnemyLive = (b: BallState, f: FighterState): boolean =>
   b.mode !== 'neutral' && b.owner !== null && b.owner !== f.id && b.heldBy === null;
 
 /**
- * How dangerous a ball at this speed is: 0 at BALL_LIVE_MIN_SPEED, 1 at POWER_KICK_MAX_SPEED.
- * Unclamped above 1 (perfect returns go faster and hurt more). Use `Math.min(1, ...)` for VFX.
+ * How dangerous (damage-wise) a ball at this speed is: 0 at DAMAGE_MIN_SPEED, 1 at DAMAGE_MAX_SPEED.
+ * Unclamped above 1 (perfect returns go faster and hurt more). Drives damage only.
  */
 export const dangerRaw = (speed: number): number =>
-  Math.max(0, (speed - BALL_LIVE_MIN_SPEED) / (POWER_KICK_MAX_SPEED - BALL_LIVE_MIN_SPEED));
-export const dangerOf = (speed: number): number => Math.min(1, dangerRaw(speed));
+  Math.max(0, (speed - DAMAGE_MIN_SPEED) / (DAMAGE_MAX_SPEED - DAMAGE_MIN_SPEED));
+
+/** Ball-speed strength 0..1: 0 at the live threshold, 1 at a full power kick. `kick.power` and knockback. */
+export const kickPower = (speed: number): number =>
+  Math.min(1, Math.max(0, (speed - BALL_LIVE_MIN_SPEED) / (POWER_KICK_MAX_SPEED - BALL_LIVE_MIN_SPEED)));

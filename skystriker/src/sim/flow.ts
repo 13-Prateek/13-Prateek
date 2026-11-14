@@ -24,7 +24,7 @@ export function makeFighter(id: PlayerId, config: MatchConfig, aura = 0): Fighte
 export function makeBall(): BallState {
   return {
     pos: { x: WORLD_W / 2, y: WORLD_H / 2 }, vel: { x: 0, y: 0 }, radius: BALL_RADIUS, spin: 0,
-    mode: 'neutral', owner: null, element: null, bounces: 0, heldBy: null, heldTicks: 0,
+    mode: 'neutral', owner: null, element: null, bounces: 0, heldBy: null, heldTicks: 0, cruise: 0,
   };
 }
 
