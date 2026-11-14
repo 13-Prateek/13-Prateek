@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Skystriker VFX Lab</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #05060d; overflow: hidden; font-family: system-ui, sans-serif; }
+      #app { position: fixed; inset: 0; }
+      #panel { position: fixed; left: 10px; top: 10px; max-width: 360px; color: #cfd8ff; font-size: 13px;
+        background: rgba(8, 10, 26, 0.78); border: 1px solid #2b3a67; border-radius: 8px; padding: 8px 10px; }
+      #panel.hidden { display: none; }
+      #panel h1 { font-size: 14px; margin: 0 0 6px; color: #fff; letter-spacing: 0.05em; }
+      #panel button { margin: 2px; padding: 3px 7px; background: #141a3a; color: #dfe6ff; border: 1px solid #34449a;
+        border-radius: 5px; cursor: pointer; font-size: 12px; }
+      #panel button.on { background: #3a4fd0; color: #fff; }
+      #look { margin-top: 6px; line-height: 1.35; color: #aab6e8; }
+      #keys { margin-top: 6px; color: #7f8bb8; font-size: 11px; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="panel"></div>
+    <script type="module" src="./harness.ts"></script>
+  </body>
+</html>
