@@ -6,7 +6,7 @@
  * round-win pips, hero names, countdown 3-2-1-FIGHT!, callouts (sized by tier),
  * combo counter, K.O. / round / match result screens, pause overlay.
  */
-import { ROUND_TIME } from '../shared/constants';
+import { AURA_PER_BAR, ROUND_TIME } from '../shared/constants';
 import { HEROES } from '../shared/heroes';
 import type { GameEvent, HudSystem, MatchState, PlayerId } from '../shared/types';
 import { computeFit } from '../input/mapping';
@@ -15,9 +15,11 @@ import {
   auraFill, countdownDigit, heroColor, heroName, hpFraction, isFinalRound, matchWinner,
   roundLabel, stepChip, timerSeconds, timerText,
 } from './model';
+import { HEAT_MAX, PHASE_DASH_COST, controlRows, ruleLines } from './controls';
 import { HUD_CSS } from './styles';
 
 export * from './model';
+export { HEAT_MAX, PHASE_DASH_COST, controlRows, ruleLines } from './controls';
 
 /** createHud's return value: the HudSystem plus display-only extras for the loop. */
 export interface Hud extends HudSystem {
@@ -28,7 +30,10 @@ export interface Hud extends HudSystem {
 }
 
 /** Callout texts (letters only) that the announcer shows itself. */
-const ANNOUNCER_OWNS = new Set(['KO', 'TIME', 'SUDDENDEATH']);
+/** How long the meter stays red after pressing an aura action without enough aura (s). */
+const NO_AURA_FLASH = 0.45;
+
+const ANNOUNCER_OWNS = new Set(['KO', 'TIME', 'SUDDENDEATH', 'FINALRUSH', 'MAXHEAT']);
 
 const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000;
 
@@ -66,6 +71,8 @@ interface PanelEls {
   fill: HTMLDivElement;
   aura: HTMLDivElement[];
   auraFill: HTMLElement[];
+  auraRow: HTMLDivElement;
+  phase: HTMLSpanElement;
   infused: HTMLSpanElement;
   combo: HTMLDivElement;
   comboNum: HTMLElement;
@@ -77,6 +84,7 @@ interface PanelState {
   lastDamageAt: number;
   hurtUntil: number;
   comboUntil: number;
+  noAuraUntil: number;
   key: string; // cache of last-written DOM values
 }
 
@@ -102,12 +110,16 @@ export function createHud(root: HTMLElement): Hud {
       const seg = el('div', 'ss-aura', auraRow);
       aura.push(seg);
       af.push(el('i', '', seg));
+      // Phase Dash cost notch: marks how much of each bar one Phase Dash spends.
+      const notch = el('b', 'ss-notch', seg);
+      notch.style.left = `${Math.min(100, (PHASE_DASH_COST / AURA_PER_BAR) * 100)}%`;
     }
+    const phase = el('span', 'ss-phase', auraRow, 'PHASE');
     const infused = el('span', 'ss-infused', auraRow, 'INFUSED');
     const combo = el('div', `ss-combo p${p + 1}`, frame);
     const comboNum = el('b', '', combo, '2');
     el('span', '', combo, 'HIT COMBO');
-    return { root: panel, tag, name, pips, chip, fill, aura, auraFill: af, infused, combo, comboNum };
+    return { root: panel, tag, name, pips, chip, fill, aura, auraFill: af, auraRow, phase, infused, combo, comboNum };
   };
 
   panelsEls.push(makePanel(0));
@@ -130,10 +142,29 @@ export function createHud(root: HTMLElement): Hud {
 
   const pause = el('div', 'ss-screen ss-pause', frame);
   el('div', 'what', pause, 'PAUSED');
+  const help = el('div', 'ss-help', pause);
+  const ctl = el('div', 'ss-help-col', help);
+  el('h3', '', ctl, 'CONTROLS');
+  const table = el('table', 'ss-controls', ctl);
+  const head = el('tr', '', table);
+  for (const h of ['', 'Keyboard + mouse', 'Gamepad']) el('th', '', head, h);
+  for (const r of controlRows()) {
+    const tr = el('tr', '', table);
+    el('td', 'act', tr, r.action);
+    el('td', '', tr, r.keyboard);
+    el('td', '', tr, r.pad || '\u2014');
+  }
+  const rules = el('div', 'ss-help-col', help);
+  el('h3', '', rules, 'RULES');
+  for (const [k, v] of ruleLines()) {
+    const p = el('p', 'ss-rule', rules);
+    el('b', '', p, k);
+    p.appendChild(document.createTextNode(` ${v}`));
+  }
   const pauseHint = el('div', 'hint', pause);
   pauseHint.innerHTML = 'Press <kbd>ESC</kbd> or <kbd>P</kbd> to resume';
 
-  const panels: PanelState[] = [0, 1].map(() => ({ hp: -1, chip: -1, lastDamageAt: -99, hurtUntil: 0, comboUntil: 0, key: '' }));
+  const panels: PanelState[] = [0, 1].map(() => ({ hp: -1, chip: -1, lastDamageAt: -99, hurtUntil: 0, comboUntil: 0, noAuraUntil: 0, key: '' }));
 
   let lastT = now();
   let lastTick = -1;
@@ -146,6 +177,8 @@ export function createHud(root: HTMLElement): Hud {
   let resultShown = false;
   let lastKoAt = -99;
   let announceBusyUntil = 0;
+  /** Set by the finalRush event; also read from state.finalRush. Cleared at each countdown. */
+  let rushFlag = false;
   const queue: Array<() => number> = []; // each returns its hold time in seconds
 
   /* ------------------------------ announcer ------------------------------ */
@@ -180,7 +213,7 @@ export function createHud(root: HTMLElement): Hud {
     calloutLayer.querySelectorAll('.ss-callout').forEach((c) => c.remove());
     liveCallouts.length = 0;
   }
-  function callout(text: string, player: PlayerId | null, tier: 1 | 2 | 3, state: Readonly<MatchState>) {
+  function callout(text: string, player: PlayerId | null, tier: 1 | 2 | 3, state: Readonly<MatchState>, colorOverride?: string) {
     const t = now();
     for (let i = liveCallouts.length - 1; i >= 0; i--) if (liveCallouts[i].until < t) liveCallouts.splice(i, 1);
     const side = tier === 3 || player === null ? -1 : player;
@@ -191,7 +224,7 @@ export function createHud(root: HTMLElement): Hud {
     }
     const wrap = el('div', `ss-callout t${tier}`, calloutLayer);
     const inner = el('div', '', wrap, text);
-    const color = player === null ? '#ffd166' : heroColor(state, player);
+    const color = colorOverride ?? (player === null ? '#ffd166' : heroColor(state, player));
     const life = CALLOUT_LIFE[tier];
     wrap.style.setProperty('--hc', color);
     wrap.style.setProperty('--life', `${life}s`);
@@ -270,7 +303,7 @@ export function createHud(root: HTMLElement): Hud {
     // Phase transitions (state-driven so the HUD is right even if an event was missed).
     if (s.phase !== lastPhase) {
       if (lastPhase === 'countdown' && s.phase === 'playing') announceNow('fight', 'FIGHT!', '#ffd166', 1.0);
-      if (s.phase === 'countdown') { lastDigit = 0; result.classList.remove('on'); resultShown = false; }
+      if (s.phase === 'countdown') { lastDigit = 0; result.classList.remove('on'); resultShown = false; rushFlag = false; }
       lastPhase = s.phase;
     }
     const digit = countdownDigit(s);
@@ -292,13 +325,16 @@ export function createHud(root: HTMLElement): Hud {
     // Timer (frozen at its last value during K.O. / round-over / match-over)
     const tt = timerText(s, ROUND_TIME);
     const secs = timerSeconds(s);
-    const tk = `${tt}|${s.suddenDeath}|${secs <= TIMER_URGENT}|${s.round}`;
+    const rush = !s.suddenDeath && s.phase === 'playing' && (rushFlag || !!s.finalRush);
+    const tk = `${tt}|${s.suddenDeath}|${secs <= TIMER_URGENT}|${s.round}|${rush}`;
     if (tk !== timerKey && (s.phase === 'playing' || s.phase === 'countdown')) {
       timerKey = tk;
       timer.textContent = tt;
       timer.classList.toggle('sd', s.suddenDeath);
-      timer.classList.toggle('urgent', !s.suddenDeath && secs <= TIMER_URGENT);
-      roundSmall.textContent = isFinalRound(s) ? 'FINAL ROUND' : `ROUND ${s.round}`;
+      timer.classList.toggle('urgent', !s.suddenDeath && (rush || secs <= TIMER_URGENT));
+      timer.classList.toggle('rush', rush);
+      roundSmall.textContent = rush ? 'FINAL RUSH' : isFinalRound(s) ? 'FINAL ROUND' : `ROUND ${s.round}`;
+      roundSmall.classList.toggle('rush', rush);
     } else if (s.phase === 'roundOver' && !s.suddenDeath && !s.fighters.some((f) => f.hp <= 0) && timer.textContent !== '0') {
       timer.textContent = '0'; // the round ran out of time: show the clock at zero, not the last whole second
       timerKey = '';
@@ -313,7 +349,8 @@ export function createHud(root: HTMLElement): Hud {
       ps.chip = stepChip(ps.chip, f.hp, t - ps.lastDamageAt, dt);
       const fills = auraFill(f.aura);
       const hurt = t < ps.hurtUntil;
-      const key = `${f.hp}|${ps.chip.toFixed(1)}|${fills.join(',')}|${f.infused}|${s.wins[p]}|${hurt}`;
+      const phaseReady = f.aura >= PHASE_DASH_COST;
+      const key = `${f.hp}|${ps.chip.toFixed(1)}|${fills.join(',')}|${f.infused}|${s.wins[p]}|${hurt}|${phaseReady}`;
       if (key !== ps.key) {
         ps.key = key;
         pe.fill.style.transform = `scaleX(${hpFraction(f.hp)})`;
@@ -325,9 +362,12 @@ export function createHud(root: HTMLElement): Hud {
           pe.aura[i].classList.toggle('full', fills[i] >= 1);
         }
         pe.infused.classList.toggle('on', f.infused);
+        pe.phase.classList.toggle('ready', phaseReady);
+        pe.phase.textContent = phaseReady ? 'PHASE READY' : 'PHASE';
         const pips = pe.pips.children;
         for (let i = 0; i < pips.length; i++) pips[i].classList.toggle('on', i < s.wins[p]);
       }
+      if (ps.noAuraUntil && t > ps.noAuraUntil) { pe.auraRow.classList.remove('noaura'); ps.noAuraUntil = 0; }
       if (ps.comboUntil && t > ps.comboUntil) { pe.combo.classList.remove('on'); ps.comboUntil = 0; }
     }
   }
@@ -383,6 +423,20 @@ export function createHud(root: HTMLElement): Hud {
           break;
         case 'suddenDeath':
           callout('SUDDEN DEATH', null, 3, s);
+          break;
+        case 'noAura': {
+          const pe = panelsEls[e.player];
+          retrigger(pe.auraRow, 'noaura');
+          panels[e.player].noAuraUntil = t + NO_AURA_FLASH;
+          break;
+        }
+        case 'finalRush':
+          rushFlag = true;
+          timerKey = '';
+          callout('FINAL RUSH!', null, 3, s, '#ff5a3a');
+          break;
+        case 'heat':
+          if (e.level >= HEAT_MAX) callout('MAX HEAT!', null, 2, s, '#ff8a1e');
           break;
         case 'superStart': {
           const b = el('div', 'ss-banner', calloutLayer);
