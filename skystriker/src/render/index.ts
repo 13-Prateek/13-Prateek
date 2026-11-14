@@ -77,6 +77,10 @@ export async function createRenderer(host: HTMLElement, opts: RendererOptions = 
   const flash = new Sprite(tx.white);
   flash.alpha = 0;
   let flashDecay = 1;
+  const edge = new Sprite(tx.edge);
+  edge.blendMode = 'add';
+  edge.alpha = 0;
+  let edgeDecay = 1;
 
   camera.addChild(
     arena.back, decals.container, arena.walls,
@@ -85,7 +89,7 @@ export async function createRenderer(host: HTMLElement, opts: RendererOptions = 
     fighterViews[0].root, fighterViews[1].root,
     ball.root, parts.container, tweens.container,
   );
-  app.stage.addChild(flash);
+  app.stage.addChild(edge, flash);
 
   /* filters */
   const bloom = lowFx ? null : new AdvancedBloomFilter({
@@ -119,6 +123,8 @@ export async function createRenderer(host: HTMLElement, opts: RendererOptions = 
     root.position.set(fit.offsetX, fit.offsetY);
     flash.width = w;
     flash.height = h;
+    edge.width = w;
+    edge.height = h;
     fxRoot.filterArea = app.screen;
   };
   doFit();
@@ -154,6 +160,11 @@ export async function createRenderer(host: HTMLElement, opts: RendererOptions = 
       chromaMax = Math.max(0.05, chromaT);
     },
     slowmo(seconds) { slowmoT = Math.max(slowmoT, seconds); },
+    edgeFlash(color, alpha, seconds) {
+      edge.tint = color;
+      edge.alpha = alpha;
+      edgeDecay = alpha / Math.max(0.01, seconds);
+    },
   };
 
   const vfx = new Vfx(tx, parts, tweens, decals, cam, fighterViews, ball, arena, screenFx);
@@ -194,6 +205,7 @@ export async function createRenderer(host: HTMLElement, opts: RendererOptions = 
       vfx.numbers.update(dt * (slowmoT > 0 ? 0.6 : 1));
 
       if (flash.alpha > 0) flash.alpha = Math.max(0, flash.alpha - flashDecay * dt);
+      if (edge.alpha > 0) edge.alpha = Math.max(0, edge.alpha - edgeDecay * dt);
 
       if (shock && shockOn) {
         shockLife += dt;

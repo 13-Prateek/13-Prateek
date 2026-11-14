@@ -32,6 +32,7 @@ export class ArenaView {
   /** 0..1 extra wall brightness (round start / fight pulse). */
   pulse = 0;
   private sudden = false;
+  private rush = false;
 
   constructor(tx: FxTextures) {
     const bg = new Graphics();
@@ -129,12 +130,16 @@ export class ArenaView {
   update(state: Readonly<MatchState>, dt: number, parX: number, parY: number): void {
     this.time += dt;
     const a = state.arena;
-    if (a.left !== this.l || a.top !== this.t || a.right !== this.r || a.bottom !== this.b || state.suddenDeath !== this.sudden) {
-      this.l = a.left; this.t = a.top; this.r = a.right; this.b = a.bottom; this.sudden = state.suddenDeath;
-      this.drawWalls(a.left, a.top, a.right, a.bottom, state.suddenDeath ? FX.WALL_SUDDEN_DEATH : FX.WALL);
+    const rush = !!state.finalRush;
+    if (a.left !== this.l || a.top !== this.t || a.right !== this.r || a.bottom !== this.b || state.suddenDeath !== this.sudden || rush !== this.rush) {
+      this.l = a.left; this.t = a.top; this.r = a.right; this.b = a.bottom; this.sudden = state.suddenDeath; this.rush = rush;
+      // sudden death (red) wins over final rush (amber)
+      this.drawWalls(a.left, a.top, a.right, a.bottom, state.suddenDeath ? FX.WALL_SUDDEN_DEATH : rush ? FX.WALL_FINAL_RUSH : FX.WALL);
     }
     this.pulse = Math.max(0, this.pulse - dt * 1.4);
-    const breathe = state.suddenDeath ? 0.25 * (0.5 + 0.5 * Math.sin(this.time * 6)) : 0.06 * Math.sin(this.time * 1.3);
+    const breathe = state.suddenDeath ? 0.25 * (0.5 + 0.5 * Math.sin(this.time * 6))
+      : rush ? 0.2 * (0.5 + 0.5 * Math.sin(this.time * 4.2))
+        : 0.06 * Math.sin(this.time * 1.3);
     this.wallG.alpha = Math.min(1, 0.82 + breathe + this.pulse * 0.6);
 
     for (let i = 0; i < STARS; i++) {
