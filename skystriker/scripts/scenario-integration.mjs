@@ -1,13 +1,15 @@
 /**
  * Lead integration playtest: real sim + renderer + HUD + sparring bot, in headless Chromium.
  *   npm run build && node scripts/scenario-integration.mjs
- * Plays ~20 s against the bot, checks pause (Esc) freezes the sim, and restart() resets.
+ * Plays ~20 s against the bot; checks the free dash leaves you Winded (not invulnerable),
+ * Q Phase-Dashes only with half a bar of aura, pause (Esc) freezes the sim, and restart() resets.
  */
 import { spawn } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { chromium } from 'playwright';
+import { freePort } from './free-port.mjs';
 
-const PORT = Number(process.env.SMOKE_PORT) || 4181;
+const PORT = await freePort();
 mkdirSync('playtest-shots', { recursive: true });
 const server = spawn(process.execPath, ['node_modules/vite/bin/vite.js', 'preview', '--port', String(PORT), '--strictPort'], { stdio: 'pipe' });
 for (const end = Date.now() + 20000; ;) {
@@ -49,6 +51,38 @@ try {
   console.log('after fighting:', JSON.stringify(mid));
   // The bot kicks every ~3 s; a hit is not guaranteed in a short headless run, so check it engaged.
   if (mid.aura[1] === 0) fails.push('the sparring bot never kicked the ball');
+
+  // Pressure pass, through the real keys: watch P1 for ~1 s after a key press.
+  const watchAfter = async (key) => {
+    await page.evaluate(() => {
+      window.__watch = { phase: 0, winded: 0, aura0: window.__game.state().fighters[0].aura };
+      const loop = () => {
+        const f = window.__game.state().fighters[0];
+        window.__watch.phase = Math.max(window.__watch.phase, f.phaseDashTimer ?? 0);
+        window.__watch.winded = Math.max(window.__watch.winded, f.winded ?? 0);
+        if (!window.__watch.stop) requestAnimationFrame(loop);
+      };
+      requestAnimationFrame(loop);
+    });
+    await page.keyboard.down('KeyW');
+    await page.keyboard.press(key);
+    await page.waitForTimeout(1000);
+    await page.keyboard.up('KeyW');
+    return page.evaluate(() => { window.__watch.stop = true; return { ...window.__watch, aura1: window.__game.state().fighters[0].aura }; });
+  };
+  await page.waitForTimeout(1300); // let any dash cooldown run out
+  const dash = await watchAfter('Space');
+  console.log('free dash:', JSON.stringify(dash));
+  if (dash.phase > 0) fails.push('free dash made P1 invulnerable (phaseDashTimer > 0)');
+  if (dash.winded <= 0) fails.push('free dash did not leave P1 Winded');
+  await page.waitForTimeout(1300);
+  const phase = await watchAfter('KeyQ');
+  console.log('phase dash (Q):', JSON.stringify(phase));
+  if (phase.aura0 >= 50) {
+    if (phase.phase <= 0) fails.push('Q with enough aura did not Phase Dash');
+    if (phase.aura0 - phase.aura1 < 49) fails.push('Phase Dash did not spend half a bar');
+  } else if (phase.phase > 0) fails.push('Q Phase-Dashed without enough aura');
+  await page.screenshot({ path: 'playtest-shots/int-03b-after-phase.png' });
 
   // Pause freezes the sim.
   await page.keyboard.press('Escape');

@@ -15,8 +15,10 @@ try { ({ chromium } = require('playwright')); }
 catch { ({ chromium } = await import('/opt/node22/lib/node_modules/playwright/index.mjs').catch(() => ({}))); }
 if (!chromium) { console.error('playwright not found'); process.exit(2); }
 
-// Each worktree/session can pick its own port so parallel smoke runs don't collide.
-const PORT = Number(process.env.SMOKE_PORT) || 4179;
+import { freePort } from './free-port.mjs';
+
+// A free port per run (or SMOKE_PORT), so parallel sessions' smoke runs never collide.
+const PORT = await freePort();
 mkdirSync('playtest-shots', { recursive: true });
 const server = spawn(process.execPath, ['node_modules/vite/bin/vite.js', 'preview', '--port', String(PORT), '--strictPort'], { stdio: 'pipe' });
 // Wait until the preview server actually answers (fixed sleeps were flaky).
