@@ -154,4 +154,13 @@ export const HUD_CSS = /* css */ `
 .ss-controls td.act { color:#ffd166; white-space:nowrap; }
 .ss-rule { margin:0 0 12px; font-size:20px; line-height:1.3; }
 .ss-rule b { color:#ffd166; margin-right:4px; }
+.ss-padline { font:600 20px system-ui,"Segoe UI",sans-serif; color:#9fe8ff; max-width:1440px; text-align:center; }
+.ss-padline.warn { color:#ffb84d; }
+.ss-toasts { position:absolute; left:0; right:0; bottom:28px; display:flex; justify-content:center; }
+.ss-toast { padding:12px 22px; border-radius:10px; border:2px solid #5ad8ff; background:rgba(8,12,28,.92); max-width:900px;
+  font:700 24px system-ui,"Segoe UI",sans-serif; color:#e8f6ff; text-align:center; box-shadow:0 0 22px rgba(90,216,255,.35);
+  animation:ss-toast var(--life) ease-out forwards; }
+.ss-toast.warn { border-color:#ffb84d; box-shadow:0 0 22px rgba(255,184,77,.35); }
+.ss-toast .warning { margin-top:6px; font-size:19px; font-weight:600; color:#ffcf7a; }
+@keyframes ss-toast { 0%{opacity:0; transform:translateY(20px)} 6%{opacity:1; transform:none} 88%{opacity:1} 100%{opacity:0} }
 `;

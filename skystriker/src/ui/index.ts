@@ -15,11 +15,12 @@ import {
   auraFill, countdownDigit, heroColor, heroName, hpFraction, isFinalRound, matchWinner,
   roundLabel, stepChip, timerSeconds, timerText,
 } from './model';
-import { HEAT_MAX, PHASE_DASH_COST, controlRows, ruleLines } from './controls';
+import { padStatus } from '../input/gamepad';
+import { HEAT_MAX, PHASE_DASH_COST, controlRows, padStatusLine, padToast, ruleLines } from './controls';
 import { HUD_CSS } from './styles';
 
 export * from './model';
-export { HEAT_MAX, PHASE_DASH_COST, controlRows, ruleLines } from './controls';
+export { HEAT_MAX, NON_STANDARD_WARNING, PHASE_DASH_COST, controlRows, padStatusLine, padToast, ruleLines } from './controls';
 
 /** createHud's return value: the HudSystem plus display-only extras for the loop. */
 export interface Hud extends HudSystem {
@@ -161,6 +162,7 @@ export function createHud(root: HTMLElement): Hud {
     el('b', '', p, k);
     p.appendChild(document.createTextNode(` ${v}`));
   }
+  const padLine = el('div', 'ss-padline', pause);
   const pauseHint = el('div', 'hint', pause);
   pauseHint.innerHTML = 'Press <kbd>ESC</kbd> or <kbd>P</kbd> to resume';
 
@@ -180,6 +182,26 @@ export function createHud(root: HTMLElement): Hud {
   /** Set by the finalRush event; also read from state.finalRush. Cleared at each countdown. */
   let rushFlag = false;
   const queue: Array<() => number> = []; // each returns its hold time in seconds
+
+  /* ------------------------------ controller status ------------------------------ */
+  const toastLayer = el('div', 'ss-toasts', frame);
+  const renderPadLine = () => {
+    const l = padStatusLine(padStatus.get());
+    padLine.textContent = l.text;
+    padLine.classList.toggle('warn', l.warn);
+  };
+  renderPadLine();
+  const unsubPad = padStatus.subscribe((st, ev) => {
+    renderPadLine();
+    const toast = padToast(st, ev);
+    if (!toast) return;
+    toastLayer.replaceChildren();
+    const box = el('div', `ss-toast${toast.warning ? ' warn' : ''}`, toastLayer);
+    el('div', 'title', box, toast.title);
+    if (toast.warning) el('div', 'warning', box, toast.warning);
+    box.style.setProperty('--life', toast.warning ? '10s' : '5s');
+    box.addEventListener('animationend', () => box.remove());
+  });
 
   /* ------------------------------ announcer ------------------------------ */
   function showAnnounce(cls: string, main: string, color: string, sub?: string): void {
@@ -455,6 +477,6 @@ export function createHud(root: HTMLElement): Hud {
     update,
     onEvents,
     setPaused(p: boolean) { pause.classList.toggle('on', p); },
-    destroy() { frame.remove(); },
+    destroy() { unsubPad(); frame.remove(); },
   };
 }

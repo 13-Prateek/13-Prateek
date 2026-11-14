@@ -114,7 +114,9 @@ try {
   await page.setViewportSize({ width: 1000, height: 900 });
   await shot('fight', 300, '12-letterbox-4x3');
   const box = await page.$eval('.ss-frame', (e) => { const r = e.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; });
-  if (Math.abs(box.w - 1000) > 1 || Math.abs(box.y - (900 - 562.5) / 2) > 1) fails.push(`HUD frame not letterboxed: ${JSON.stringify(box)}`);
+  // Shared layout (src/shared/layout.ts): fit a 1600 × (900 + HUD band 96) box; the frame starts at world y = 0.
+  const sc = Math.min(1000 / 1600, 900 / 996), wantY = (900 - 996 * sc) / 2 + 96 * sc;
+  if (Math.abs(box.w - 1600 * sc) > 1 || Math.abs(box.y - wantY) > 1) fails.push(`HUD frame not letterboxed: ${JSON.stringify(box)} (want y ${wantY})`);
 
   // Audio: live voices were actually played during the scenes.
   const stats = await page.evaluate(() => window.__hudDev.audioStats());

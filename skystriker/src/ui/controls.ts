@@ -3,6 +3,7 @@
  * real bindings in src/input/mapping.ts, so the help can never drift from input.
  */
 import * as C from '../shared/constants';
+import type { PadEvent, PadStatus } from '../input/gamepad';
 import { type Action, KEY_BINDINGS, MOUSE_BINDINGS, PAD_BUTTONS } from '../input/mapping';
 
 /** Reads a tuning constant the sim session may add later (pressure pass), with the design default. */
@@ -72,4 +73,27 @@ export function ruleLines(): Array<[string, string]> {
     ['Aura', 'Fill it by kicking, close calls, perfect returns and landing hits.'],
     ['Win', 'Hit them with your ball to drain their health. Best of 3 rounds.'],
   ];
+}
+
+/* ------------------------------ controller status wording ------------------------------ */
+
+export const NON_STANDARD_WARNING =
+  "This controller isn't in standard mode. Buttons may be wrong; try Xbox mode or Steam Input.";
+
+/** Pause-screen line about the controller. `warn` = show it in the warning colour. */
+export function padStatusLine(st: PadStatus): { text: string; warn: boolean } {
+  if (st.support === 'insecure') return { text: 'Controller: unavailable. Open the game from http://localhost or https to use one.', warn: true };
+  if (st.support === 'unsupported') return { text: 'Controller: this browser does not support controllers.', warn: true };
+  if (!st.info) return { text: 'Controller: none. Press any controller button to connect.', warn: false };
+  const more = st.info.count > 1 ? ` (using 1 of ${st.info.count} listed)` : '';
+  if (!st.info.standard) return { text: `Controller: ${st.info.name}${more}. ${NON_STANDARD_WARNING}`, warn: true };
+  return { text: `Controller: ${st.info.name}${more}`, warn: false };
+}
+
+/** Toast for a connect / disconnect / switch, or null when nothing worth saying. */
+export function padToast(st: PadStatus, event: PadEvent): { title: string; warning?: string } | null {
+  if (event === 'disconnected') return { title: 'Controller disconnected' };
+  if (!st.info) return null;
+  const title = `${event === 'changed' ? 'Now using' : 'Controller connected'}: ${st.info.name}`;
+  return st.info.standard ? { title } : { title, warning: NON_STANDARD_WARNING };
 }
