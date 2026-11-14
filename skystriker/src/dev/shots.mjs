@@ -62,6 +62,7 @@ try {
   const stats = await page.evaluate(async () => {
     const v = window.__vfx;
     v.setManual(false);
+    v.jsTime();
     const out = [];
     for (const id of ['hit', 'trail', 'ko']) {
       v.play(id);
@@ -81,9 +82,11 @@ try {
     }
     const all = out.flatMap((o) => o.d).sort((a, b) => a - b);
     const q = (p) => all[Math.min(all.length - 1, Math.floor(all.length * p))];
-    return { frames: all.length, p50: q(0.5), p95: q(0.95), p99: q(0.99), max: all[all.length - 1], maxParticles: Math.max(...out.map((o) => o.maxP)) };
+    const js = v.jsTime();
+    return { js, frames: all.length, p50: q(0.5), p95: q(0.95), p99: q(0.99), max: all[all.length - 1], maxParticles: Math.max(...out.map((o) => o.maxP)) };
   });
   console.log(`frame-time (${lowfx ? 'lowfx' : 'bloom'}): frames=${stats.frames} p50=${stats.p50.toFixed(1)}ms p95=${stats.p95.toFixed(1)}ms p99=${stats.p99.toFixed(1)}ms max=${stats.max.toFixed(1)}ms peakParticles=${stats.maxParticles}`);
+  console.log(`js per frame (sim+render update): p50=${stats.js.p50.toFixed(2)}ms p95=${stats.js.p95.toFixed(2)}ms max=${stats.js.max.toFixed(2)}ms over ${stats.js.n} frames`);
 } catch (e) {
   errors.push(String(e));
 } finally {

@@ -68,10 +68,17 @@ function advance(dt: number): void {
 }
 
 let last = performance.now();
+/** JS time spent in sim + renderer.render per frame (ms), ring of recent samples. */
+const jsMs = new Float32Array(600);
+let jsN = 0;
 function frame(now: number): void {
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
-  if (!manual) advance(dt);
+  if (!manual) {
+    const t0 = performance.now();
+    advance(dt);
+    jsMs[jsN++ % jsMs.length] = performance.now() - t0;
+  }
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
@@ -139,6 +146,13 @@ play(scene);
   },
   seen: () => seen.slice(),
   sceneTick: () => t,
+  /** p50 / p95 / max of per-frame JS time (sim + render update), then resets. */
+  jsTime() {
+    const a = Array.from(jsMs.slice(0, Math.min(jsN, jsMs.length))).sort((x, y) => x - y);
+    jsN = 0;
+    const q = (p: number) => a[Math.min(a.length - 1, Math.floor(a.length * p))] ?? 0;
+    return { n: a.length, p50: q(0.5), p95: q(0.95), max: a[a.length - 1] ?? 0 };
+  },
   state: () => sim.state,
   particles: () => renderer.debug.particles(),
   tweens: () => renderer.debug.tweens(),
