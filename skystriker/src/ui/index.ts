@@ -361,7 +361,8 @@ export function createHud(root: HTMLElement): Hud {
           announceNow('ko', 'K.O.', heroColor(s, e.loser === 0 ? 1 : 0), 1.5);
           break;
         case 'roundEnd': {
-          const timeout = t - lastKoAt > 1.5;
+          // A K.O. leaves someone at 0 HP; otherwise the round ended on time.
+          const timeout = !s.fighters.some((f) => f.hp <= 0) && t - lastKoAt > 3;
           if (timeout) announceNow('big', 'TIME!', '#ffd166', 1.1);
           announceQueued(() => {
             if (e.winner === null) showAnnounce('big', 'DRAW', '#cfe3ff', 'NO ONE TAKES THE ROUND');

@@ -35,12 +35,14 @@ try {
   };
   const text = (sel) => page.$eval(sel, (e) => e.textContent).catch(() => null);
   /** Wait (up to `ms`) for the big announcer text to read `want`; headless frame pacing varies. */
-  const waitAnnounce = (want, ms = 4000) => page.waitForFunction(
+  const waitAnnounce = (want, ms = 6000) => page.waitForFunction(
     (w) => document.querySelector('.ss-announce .main')?.textContent === w, want, { timeout: ms, polling: 16 },
   ).then(() => true, () => false);
 
-  await shot('countdown', 250, '01-countdown-3');
-  if ((await text('.ss-announce .main')) !== '3') fails.push('countdown did not show 3');
+  await page.evaluate(() => window.__hudDev.scene('countdown'));
+  if (!(await waitAnnounce('3'))) fails.push('countdown did not show 3');
+  await page.waitForTimeout(200);
+  await page.screenshot({ path: 'playtest-shots/ui-01-countdown-3.png' });
   if (!(await waitAnnounce('2'))) fails.push('countdown did not show 2');
   if (!(await waitAnnounce('1'))) fails.push('countdown did not show 1');
   if (!(await waitAnnounce('FIGHT!'))) fails.push('FIGHT! not shown after countdown');
@@ -90,6 +92,14 @@ try {
   const stats = await page.evaluate(() => window.__hudDev.audioStats());
   console.log('live audio stats:', JSON.stringify(stats));
   if (!stats || stats.played < 10) fails.push('audio played too few voices');
+
+  // Audio: every event's sound on its own is audible and doesn't clip.
+  const each = await page.evaluate(() => window.__hudDev.renderEach());
+  console.log('per-sound peaks:', JSON.stringify(each));
+  for (const [k, v] of Object.entries(each)) {
+    if (v < 0.03) fails.push(`sound '${k}' is (nearly) silent: peak ${v}`);
+    if (v >= 1) fails.push(`sound '${k}' clips: peak ${v}`);
+  }
 
   // Audio: offline stress render — limiter + voice caps must keep it clean.
   const r = await page.evaluate(() => window.__hudDev.renderOffline(6, true));

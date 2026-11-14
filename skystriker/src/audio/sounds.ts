@@ -70,8 +70,8 @@ export function createSounds(m: Mixer) {
       const g = m.ctx.createGain();
       g.gain.setValueAtTime(0, t);
       g.gain.setValueAtTime(0, t + 0.11); // taps never get far enough to whine
-      g.gain.linearRampToValueAtTime(0.07, t + 1.0);
-      g.gain.linearRampToValueAtTime(0.05, t + 1.4);
+      g.gain.linearRampToValueAtTime(0.045, t + 1.0);
+      g.gain.linearRampToValueAtTime(0.032, t + 1.4);
       g.gain.linearRampToValueAtTime(0, t + 1.65);
       osc.connect(f); osc2.connect(f); f.connect(g).connect(v.out);
       osc.start(t); osc2.start(t); osc.stop(t + 1.7); osc2.stop(t + 1.7);
@@ -102,7 +102,7 @@ export function createSounds(m: Mixer) {
       const v = m.voice('hit', t, 0.45, { pan, max: 3, prio: 4, reverb: 0.12 });
       if (!v) return;
       const up = 1 + Math.min(4, Math.max(0, combo - 1)) * 0.06; // combo hits climb in pitch
-      m.tone(v, 'sine', t, 0.28, 120 * up * jitter(), 38, 0.8 + 0.2 * a);
+      m.tone(v, 'sine', t, 0.28, 120 * up * jitter(), 38, 0.95 + 0.25 * a);
       m.noise(v, t, 0.16 + 0.08 * a, 0.35 + 0.35 * a, { type: 'lowpass', f0: 3200 * up, f1: 600, drive: true });
       m.tone(v, 'square', t, 0.06, 240 * up, 90, 0.12, { filter: 1500 });
       if (element) elementLayer(element, t, pan);
@@ -169,8 +169,8 @@ export function createSounds(m: Mixer) {
       const v = m.voice('count', t, 0.3, { max: 2, prio: 6, reverb: 0.15 });
       if (!v) return;
       const f = secondsLeft <= 1 ? 740 : 587;
-      m.tone(v, 'square', t, 0.16, f, null, 0.13, { filter: 3000 });
-      m.tone(v, 'sine', t, 0.25, f / 2, null, 0.2);
+      m.tone(v, 'square', t, 0.16, f, null, 0.2, { filter: 3000 });
+      m.tone(v, 'sine', t, 0.25, f / 2, null, 0.3);
     },
     fight(t: number) {
       const v = m.voice('fight', t, 1.4, { max: 1, prio: 7, reverb: 0.5 });

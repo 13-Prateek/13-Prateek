@@ -347,7 +347,52 @@ async function renderOffline(seconds = 6, wav = false) {
   return { peak, clipped, rms, stats: { ...eng.mixer.stats }, wav: wav ? encodeWav(buf) : undefined };
 }
 
+/** Render each event type alone (no music) and report its peak, so a silent or clipping recipe is caught. */
+async function renderEach() {
+  const st = fakeState();
+  st.phase = 'playing';
+  const p0 = { x: 400, y: 450 };
+  const cases: Record<string, GameEvent[]> = {
+    kickSnap: [{ type: 'kick', player: 0, pos: p0, dir: { x: 1, y: 0 }, speed: 900, power: 0.1, perfect: false, curve: false, element: null }],
+    kickPower: [{ type: 'kick', player: 0, pos: p0, dir: { x: 1, y: 0 }, speed: 1700, power: 1, perfect: false, curve: true, element: 'fire' }],
+    perfect: [{ type: 'kick', player: 0, pos: p0, dir: { x: 1, y: 0 }, speed: 2200, power: 0.6, perfect: true, curve: false, element: null }],
+    chargeWhine: [{ type: 'kickStart', player: 0, charge: 0 }],
+    chargeFull: [{ type: 'chargeFull', player: 0 }],
+    bounce: [{ type: 'bounce', pos: p0, normal: { x: 1, y: 0 }, speed: 900 }],
+    hit: [{ type: 'hit', target: 1, attacker: 0, pos: p0, damage: 12, speed: 1300, bank: 0, combo: 1, element: null }],
+    wallSplat: [{ type: 'wallSplat', target: 1, pos: p0, normal: { x: 1, y: 0 }, damage: 5 }],
+    clash: [{ type: 'clash', pos: p0, winner: 0 }],
+    closeCall: [{ type: 'closeCall', player: 0, pos: p0 }],
+    dash: [{ type: 'dash', player: 0, pos: p0, dir: { x: 1, y: 0 } }],
+    trap: [{ type: 'trap', player: 0, pos: p0 }],
+    infuseFrost: [{ type: 'infuse', player: 0, element: 'frost' }],
+    infuseVolt: [{ type: 'infuse', player: 0, element: 'volt' }],
+    infuseStone: [{ type: 'infuse', player: 0, element: 'stone' }],
+    auraBar: [{ type: 'auraBar', player: 0, bars: 2 }],
+    countdown: [{ type: 'countdown', secondsLeft: 3 }],
+    fight: [{ type: 'fight' }],
+    ko: [{ type: 'ko', loser: 1, pos: p0 }],
+    roundEnd: [{ type: 'roundEnd', winner: 0 }],
+    matchEnd: [{ type: 'matchEnd', winner: 0 }],
+    superStart: [{ type: 'superStart', player: 0, element: 'fire', name: 'X' }],
+    suddenDeath: [{ type: 'suddenDeath' }],
+  };
+  const out: Record<string, number> = {};
+  for (const [name, events] of Object.entries(cases)) {
+    const ctx = new OfflineAudioContext(2, 44100 * 3, 44100);
+    const eng = createEngine(ctx);
+    eng.mixer.setMaster(0.8, 0);
+    eng.handleEvents(events, st, 0.02);
+    const buf = await ctx.startRendering();
+    let peak = 0;
+    for (let c = 0; c < 2; c++) for (const v of buf.getChannelData(c)) peak = Math.max(peak, Math.abs(v));
+    out[name] = Math.round(peak * 1000) / 1000;
+  }
+  return out;
+}
+
 (window as unknown as { __hudDev: unknown }).__hudDev = {
+  renderEach,
   scene: (name: string) => { scenes[name](); },
   scenes: Object.keys(scenes),
   state: () => s,
