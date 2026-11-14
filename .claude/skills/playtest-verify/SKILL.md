@@ -5,7 +5,7 @@ description: How to prove a Skystriker change works in a real headless browser -
 
 # Playtest verification
 
-Chromium + Playwright are preinstalled (`require('playwright')` works; never run `playwright install`).
+Playwright is a devDependency, so `npm install` brings it in. Its Chromium is shared per machine and is already downloaded on the owner's Windows PC (`%LOCALAPPDATA%\ms-playwright`). If `npm run smoke` says the browser executable is missing, run `npx playwright install chromium` once.
 
 ## Baseline
 ```bash
