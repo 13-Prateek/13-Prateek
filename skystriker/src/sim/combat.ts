@@ -4,9 +4,10 @@
  */
 import {
   AURA_GAIN_CLOSE_CALL, AURA_GAIN_HIT_LANDED, AURA_GAIN_HIT_TAKEN, BANK_BONUS_MAX_BOUNCES, BANK_BONUS_PER_BOUNCE,
-  BUMP_EVENT_MIN_SPEED, BUMP_RESTITUTION, CLASH_MIN_CHARGE, CLASH_POP_SPEED, CLOSE_CALL_DISTANCE, COMBO_SCALING,
+  BUMP_EVENT_MIN_SPEED, BUMP_RESTITUTION, CLASH_MIN_CHARGE, CLASH_POP_SPEED, CLOSE_CALL_DISTANCE, COMBO_BREAK_INVULN,
+  COMBO_MAX_HITS, COMBO_SCALING,
   DAMAGE_MAX, DAMAGE_MIN, FIGHTER_BODY_RADIUS, FOOT_RADIUS, HIT_BALL_RESTITUTION, HIT_KNOCKBACK,
-  HIT_KNOCKBACK_MIN, HITSTOP_CLASH, HITSTOP_HIT, HITSTUN_TICKS, INFUSE_DAMAGE_MULT, KICK_RECOVERY_TICKS,
+  HIT_KNOCKBACK_MIN, HITSTOP_CLASH, HITSTOP_HIT, HITSTUN_COMBO_DECAY, HITSTUN_MIN, HITSTUN_TICKS, INFUSE_DAMAGE_MULT, KICK_RECOVERY_TICKS,
   PERFECT_WINDOW, SUDDEN_DEATH_BALL_MULT, SUDDEN_DEATH_ONE_HIT,
 } from '../shared/constants';
 import { elementAdvantage } from '../shared/heroes';
@@ -98,7 +99,9 @@ function hit(ctx: TickCtx, victim: FighterState): void {
 
   // Victim: knockback along the ball's travel, hitstun, everything cancelled.
   victim.vel = { x: knockDir.x * knock, y: knockDir.y * knock };
-  victim.hitstun = HITSTUN_TICKS;
+  // Each further combo hit stuns for less, and a max-length combo grants a burst of i-frames: no infinites.
+  victim.hitstun = Math.max(HITSTUN_MIN, Math.round(HITSTUN_TICKS * Math.pow(HITSTUN_COMBO_DECAY, prevCombo)));
+  if (victim.comboAgainst >= COMBO_MAX_HITS) victim.invulnTimer = Math.max(victim.invulnTimer, COMBO_BREAK_INVULN);
   victim.dashTimer = 0;
   if (victim.kickPhase === 'charging' || victim.kickPhase === 'active') {
     victim.kickPhase = 'recovery';

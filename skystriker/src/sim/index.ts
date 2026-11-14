@@ -9,7 +9,7 @@
 import { COUNTDOWN_TICKS, INFUSE_COST, ROUNDS_TO_WIN } from '../shared/constants';
 import type { FighterState, GameEvent, InputFrame, MatchConfig, MatchState } from '../shared/types';
 import { EMPTY_INPUT } from '../shared/types';
-import { checkNeutral, integrateBall } from './ball';
+import { checkNeutral, collideBallWalls, integrateBall } from './ball';
 import { resolveContacts, updateCloseCalls, type TickCtx } from './combat';
 import { edgesOf, moveFighter, tickTimers, tryDash, updateFacing } from './fighter';
 import {
@@ -96,9 +96,11 @@ function simulate(state: MatchState, inputs: [InputFrame, InputFrame], events: G
   } else {
     integrateBall(state, events, () => {
       resolveContacts(ctx);
+      collideBallWalls(state, events); // a bump/hit push-out next to a wall must not shove the ball outside
       updateCloseCalls(ctx);
     });
   }
+  collideBallWalls(state, events);
   updateCloseCalls(ctx);
   checkNeutral(state, events);
   for (const f of state.fighters) endOfTickKick(f);

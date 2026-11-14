@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { computeDamage } from '../../src/sim/combat';
 import {
-  AURA_GAIN_CLOSE_CALL, AURA_GAIN_HIT_LANDED, AURA_GAIN_HIT_TAKEN, AURA_GAIN_KICK, HITSTOP_HIT, HITSTUN_TICKS,
+  AURA_GAIN_CLOSE_CALL, AURA_GAIN_HIT_LANDED, AURA_GAIN_HIT_TAKEN, AURA_GAIN_KICK, COMBO_MAX_HITS, HITSTOP_HIT,
+  HITSTUN_TICKS,
   MAX_HP, WALL_SPLAT_DAMAGE,
 } from '../../src/shared/constants';
 import { clearHitstop, ofType, park, playing, run, setBall, step, tapKick } from './helpers';
@@ -103,6 +104,26 @@ describe('hits', () => {
     run(s, HITSTUN_TICKS + 1);
     expect(v.hitstun).toBe(0);
     expect(v.comboAgainst).toBe(0);
+  });
+
+  it('no infinites: hitstun shrinks each combo hit and the max-length combo grants i-frames', () => {
+    const s = playing();
+    const v = s.fighters[1];
+    const stuns: number[] = [];
+    let hits = 0;
+    for (let i = 0; i < COMBO_MAX_HITS + 1; i++) {
+      v.pos = { x: 1000, y: 450 };
+      v.vel = { x: 0, y: 0 };
+      setBall(s, 900, 450, 1500, 0, 0);
+      const ev = run(s, 3);
+      hits += ofType(ev, 'hit').length;
+      if (ofType(ev, 'hit').length) stuns.push(v.hitstun);
+      clearHitstop(s);
+    }
+    expect(hits).toBe(COMBO_MAX_HITS); // the extra ball passed through the burst i-frames
+    expect(v.comboAgainst).toBe(COMBO_MAX_HITS);
+    for (let i = 1; i < stuns.length; i++) expect(stuns[i]).toBeLessThan(stuns[i - 1]);
+    expect(v.invulnTimer).toBeGreaterThan(0);
   });
 
   it('wall splat: a stunned fighter slamming a wall takes damage and bounces off', () => {

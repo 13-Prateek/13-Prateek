@@ -86,7 +86,11 @@ export const WALL_SPLAT_DAMAGE = 5;
 export const WALL_SPLAT_MIN_SPEED = 600; // speed INTO the wall needed for a splat
 export const WALL_SPLAT_RESTITUTION = 0.5;
 export const WALL_SPLAT_STUN = sec(0.45); // a splat refreshes hitstun to at least this: follow-up window
-export const HITSTUN_TICKS = sec(0.35);
+export const HITSTUN_TICKS = sec(0.35); // first hit of a combo
+export const HITSTUN_COMBO_DECAY = 0.8; // each further combo hit stuns for 80% of the previous
+export const HITSTUN_MIN = sec(0.12);
+export const COMBO_MAX_HITS = 5; // the hit that reaches this combo count also grants COMBO_BREAK_INVULN
+export const COMBO_BREAK_INVULN = sec(0.6); // no infinites: the victim can't be hit again for this long
 export const HIT_KNOCKBACK = 1000; // knockback speed from a max-power hit
 export const HIT_KNOCKBACK_MIN = 550; // knockback speed from a barely-live hit
 
