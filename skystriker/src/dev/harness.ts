@@ -18,6 +18,8 @@ window.addEventListener('resize', () => renderer.resize(window.innerWidth, windo
 
 const sim = new FakeSim();
 let prev: MatchState = structuredClone(sim.state);
+/** Scene hotkeys, in SCENES order. */
+const KEYS = '1234567890-zxcv';
 let scene: Scene = SCENES.find((s) => s.id === params.get('scene')) ?? SCENES[1];
 let mem: Record<string, number> = {};
 /** Event types seen since the scene started (for automation). */
@@ -90,7 +92,7 @@ function drawPanel(): void {
   panel.appendChild(h);
   SCENES.forEach((s, i) => {
     const b = document.createElement('button');
-    b.textContent = `${i < 9 ? i + 1 : i === 9 ? 0 : '-'} ${s.label}`;
+    b.textContent = `${KEYS[i]?.toUpperCase() ?? ''} ${s.label}`;
     if (s === scene && !showcase) b.className = 'on';
     b.onclick = () => { showcase = false; play(s); };
     panel.appendChild(b);
@@ -112,13 +114,12 @@ function drawPanel(): void {
   panel.appendChild(look);
   const keys = document.createElement('div');
   keys.id = 'keys';
-  keys.textContent = 'Keys: 1-9, 0, - pick a scene · R replay · A showcase · S slow-mo · Space pause · H hide panel · add ?lowfx=1 to the URL to turn off glow';
+  keys.textContent = 'Keys: 1-9, 0, -, Z X C V pick a scene · R replay · A showcase · S slow-mo · Space pause · H hide panel · add ?lowfx=1 to the URL to turn off glow';
   panel.appendChild(keys);
 }
 
 window.addEventListener('keydown', (e) => {
-  const order = '1234567890-';
-  const i = order.indexOf(e.key);
+  const i = KEYS.indexOf(e.key.toLowerCase());
   if (i >= 0 && i < SCENES.length) { showcase = false; play(SCENES[i]); return; }
   if (e.key === 'r' || e.key === 'R') play(scene);
   else if (e.key === 'a' || e.key === 'A') { showcase = !showcase; if (showcase) play(SCENES[0]); }

@@ -5,7 +5,7 @@
  */
 import {
   ARENA_MARGIN, BALL_DRAG, BALL_LIVE_MIN_SPEED, BALL_RADIUS, BALL_WALL_RESTITUTION, CLOSE_CALL_DISTANCE,
-  DAMAGE_MAX, DAMAGE_MIN, DASH_INVULN, DASH_SPEED, DASH_TICKS, FIGHTER_ACCEL, FIGHTER_BODY_RADIUS,
+  DAMAGE_MAX, DAMAGE_MIN, DASH_SPEED, DASH_TICKS, FIGHTER_ACCEL, FIGHTER_BODY_RADIUS,
   FIGHTER_DRAG, FIGHTER_MAX_SPEED, FOOT_REACH, HIT_KNOCKBACK, HITSTOP_HIT, HITSTOP_KICK, HITSTOP_KO,
   HITSTOP_PERFECT, HITSTUN_TICKS, KICK_ACTIVE_TICKS, KICK_CHARGE_FULL, KICK_RECOVERY_TICKS, MAX_HP,
   POWER_KICK_MAX_SPEED, ROUND_OVER_TICKS, ROUND_TIME, SIM_DT, SNAP_KICK_SPEED, SPIN_DECAY,
@@ -13,6 +13,11 @@ import {
 } from '../shared/constants';
 import type { Element, FighterState, GameEvent, HeroId, MatchState, PlayerId } from '../shared/types';
 import { EMPTY_INPUT } from '../shared/types';
+
+/** Fake-sim stand-ins for the pressure-pass numbers (the real ones live in the sim). */
+const HEAT_MAX = 4;
+const WINDED_DASH = 26;
+const WINDED_PHASE = 70;
 
 export function makeState(heroes: [HeroId, HeroId] = ['kael', 'yuki']): MatchState {
   const fighter = (id: PlayerId): FighterState => ({
@@ -46,12 +51,15 @@ export class FakeSim {
   /** Live balls hurt the non-owner automatically (off for pure trail demos). */
   hits = true;
   private closeCallArmed = [true, true];
+  /** Was the current dash a phase dash (decides how long Winded lasts). */
+  private dashWasPhase = [false, false];
   private pending: GameEvent[] = [];
 
   reset(heroes?: [HeroId, HeroId]): void {
     this.state = makeState(heroes);
     this.move[0].x = this.move[0].y = this.move[1].x = this.move[1].y = 0;
     this.closeCallArmed = [true, true];
+    this.dashWasPhase = [false, false];
     this.pending = [];
     this.hits = true;
   }
@@ -88,6 +96,11 @@ export class FakeSim {
     if (o.snapTo) { f.pos.x = b.pos.x - dx * FOOT_REACH; f.pos.y = b.pos.y - dy * FOOT_REACH; f.vel.x = f.vel.y = 0; }
     let speed = power <= 0.05 ? SNAP_KICK_SPEED : SNAP_KICK_SPEED + (POWER_KICK_MAX_SPEED - SNAP_KICK_SPEED) * power;
     if (o.perfect) speed *= 1.5;
+    // rally heat: a return of the opponent's live ball heats it up
+    const isReturn = b.mode !== 'neutral' && b.owner !== null && b.owner !== p;
+    const before = b.heat ?? 0;
+    const heat = isReturn ? Math.min(HEAT_MAX, before + 1) : Math.max(before, this.heatFloor());
+    speed *= 1 + 0.1 * heat;
     f.kickPhase = 'active';
     f.kickTimer = KICK_ACTIVE_TICKS;
     f.charge = 0;
@@ -104,6 +117,37 @@ export class FakeSim {
     this.closeCallArmed = [true, true];
     s.hitstop = Math.max(s.hitstop, o.perfect ? HITSTOP_PERFECT : HITSTOP_KICK);
     this.emit({ type: 'kick', player: p, pos: { x: b.pos.x, y: b.pos.y }, dir: { x: dx, y: dy }, speed, power, perfect: !!o.perfect, curve: !!o.curve, element: el });
+    b.heat = heat;
+    if (heat !== before) this.emit({ type: 'heat', level: heat, pos: { x: b.pos.x, y: b.pos.y } });
+  }
+
+  private heatFloor(): number { return this.state.finalRush ? 1 : 0; }
+
+  private coolBall(ev: GameEvent[]): void {
+    const b = this.state.ball;
+    const floor = this.heatFloor();
+    if ((b.heat ?? 0) > floor) {
+      b.heat = floor;
+      ev.push({ type: 'heat', level: floor, pos: { x: b.pos.x, y: b.pos.y } });
+    }
+  }
+
+  /** Aura-paid invulnerable dash, followed by a long Winded. */
+  phaseDash(p: PlayerId, dx: number, dy: number): void {
+    const f = this.state.fighters[p];
+    const l = Math.hypot(dx, dy) || 1;
+    f.vel = { x: (dx / l) * DASH_SPEED, y: (dy / l) * DASH_SPEED };
+    f.dashTimer = DASH_TICKS + 4;
+    f.phaseDashTimer = DASH_TICKS + 4;
+    f.winded = 0;
+    this.dashWasPhase[p] = true;
+    this.emit({ type: 'phaseDash', player: p, pos: { x: f.pos.x, y: f.pos.y }, dir: { x: dx / l, y: dy / l } });
+  }
+
+  startFinalRush(): void {
+    this.state.finalRush = true;
+    this.emit({ type: 'finalRush' });
+    this.emit({ type: 'callout', text: 'FINAL RUSH!', player: null, tier: 3 });
   }
 
   dash(p: PlayerId, dx: number, dy: number): void {
@@ -111,7 +155,8 @@ export class FakeSim {
     const l = Math.hypot(dx, dy) || 1;
     f.vel = { x: (dx / l) * DASH_SPEED, y: (dy / l) * DASH_SPEED };
     f.dashTimer = DASH_TICKS;
-    f.invulnTimer = DASH_INVULN;
+    f.winded = 0;
+    this.dashWasPhase[p] = false;
     this.emit({ type: 'dash', player: p, pos: { x: f.pos.x, y: f.pos.y }, dir: { x: dx / l, y: dy / l } });
   }
 
@@ -145,7 +190,12 @@ export class FakeSim {
     if (s.phase === 'roundOver') s.phaseTimer--;
 
     for (const f of s.fighters) {
-      if (f.dashTimer > 0) f.dashTimer--;
+      if (f.dashTimer > 0 && --f.dashTimer === 0) {
+        // every dash ends Winded: short after a free dash, long after a phase dash
+        f.winded = this.dashWasPhase[f.id] ? WINDED_PHASE : WINDED_DASH;
+        ev.push({ type: 'winded', player: f.id, ticks: f.winded });
+      } else if ((f.winded ?? 0) > 0) f.winded = (f.winded ?? 0) - 1;
+      if ((f.phaseDashTimer ?? 0) > 0) f.phaseDashTimer = (f.phaseDashTimer ?? 0) - 1;
       if (f.invulnTimer > 0) f.invulnTimer--;
       if (f.hitstun > 0 && --f.hitstun === 0) f.comboAgainst = 0;
       if (f.kickPhase === 'active' && --f.kickTimer <= 0) { f.kickPhase = 'recovery'; f.kickTimer = KICK_RECOVERY_TICKS; }
@@ -159,7 +209,7 @@ export class FakeSim {
       const m = this.move[f.id];
       const ko = f.hp <= 0;
       if (f.hitstun <= 0 && f.dashTimer <= 0 && !ko) {
-        const mult = f.kickPhase === 'charging' ? 0.6 : 1;
+        const mult = (f.kickPhase === 'charging' ? 0.6 : 1) * ((f.winded ?? 0) > 0 ? 0.4 : 1);
         f.vel.x += m.x * FIGHTER_ACCEL * SIM_DT * mult;
         f.vel.y += m.y * FIGHTER_ACCEL * SIM_DT * mult;
       }
@@ -227,6 +277,7 @@ export class FakeSim {
       if (b.mode === 'live' && sp < BALL_LIVE_MIN_SPEED) {
         b.mode = 'neutral'; b.owner = null; b.element = null;
         ev.push({ type: 'ballNeutral', pos: { x: b.pos.x, y: b.pos.y } });
+        this.coolBall(ev);
       }
       // body hits + close calls
       if (b.mode !== 'neutral' && b.owner !== null) {
@@ -234,7 +285,8 @@ export class FakeSim {
         const dx = f.pos.x - b.pos.x, dy = f.pos.y - b.pos.y;
         const dist = Math.hypot(dx, dy);
         const gap = dist - FIGHTER_BODY_RADIUS - r;
-        if (gap < 0 && this.hits && f.invulnTimer <= 0 && f.hp > 0) this.hit(f, b.owner, sp, ev);
+        const phasing = (f.phaseDashTimer ?? 0) > 0;
+        if (gap < 0 && this.hits && !phasing && f.invulnTimer <= 0 && f.hp > 0) this.hit(f, b.owner, sp, ev);
         else if (gap < CLOSE_CALL_DISTANCE && gap >= 0 && this.closeCallArmed[f.id]) {
           this.closeCallArmed[f.id] = false;
           ev.push({ type: 'closeCall', player: f.id, pos: { x: b.pos.x, y: b.pos.y } });
@@ -261,6 +313,7 @@ export class FakeSim {
       type: 'hit', target: f.id, attacker, pos: { x: b.pos.x + dx * b.radius, y: b.pos.y + dy * b.radius },
       damage: dmg, speed, bank: b.bounces, combo: f.comboAgainst, element: b.element,
     });
+    this.coolBall(ev);
     this.checkKo(f, ev);
   }
 
