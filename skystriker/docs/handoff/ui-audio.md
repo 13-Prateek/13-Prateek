@@ -4,7 +4,48 @@ Branch: `claude/skystriker-ui-audio`. Files: `src/input/**`, `src/ui/**`, `src/a
 `tests/input/`, `tests/ui/`, `scripts/scenario-ui-hud.mjs`, `scripts/scenario-ui-integ.mjs`.
 No changes to `src/shared/**`, `src/game/**` or `src/main.ts`.
 
-## Pressure pass (latest, built on the lead branch with pause/rematch/mute)
+## Gamepad fix (latest): "gamepad is not working"
+**What was wrong** (two real bugs, both fixed):
+1. **The game read the wrong "controller".** Windows often lists extra pads: Steam's virtual pad, vJoy, a DualSense listed twice, some headsets. The game took the first one in the list, so a fake pad could swallow every button and nothing happened. Now it prefers a pad in standard (Xbox-layout) mode, switches to whichever pad you actually press, otherwise takes the most recently used one, and then sticks with it. I checked this in the real game: a fake "vJoy" listed before an Xbox pad broke movement, buttons and Start with the old code, and everything works with the new code.
+2. **The mouse stole your aim.** Clicking the page to focus it left the mouse cursor parked there, and kicks then aimed at that spot instead of at the opponent. Now **whatever you used last wins**. Playing on the pad with the right stick centred means auto-aim at the opponent. Only actually moving the mouse switches aim back to the mouse.
+
+Also: the game now checks for controllers every frame from the moment it loads (Chrome doesn't always announce a pad that was plugged in before the page opened), so **Start** pauses even then. A browser that blocks controllers no longer breaks anything.
+
+**How the owner connects a controller**
+1. Plug in the controller (or pair it over Bluetooth) and open the game in Chrome at **http://localhost:5173/**.
+2. **Click the game once**, then **press any button on the controller** (A is fine). Chrome only shows a controller to a page after a button press.
+3. A box appears at the bottom of the arena: **"Controller connected: Xbox Wireless Controller"** (or your controller's name). That means the game sees it.
+4. Play: **left stick** flies, **right stick** aims (let go to auto-aim at the opponent), **RT** kicks (hold for power), **LT** traps, **A** dash, **B** Phase Dash, **X** infuse, **Start** pause. Pausing shows a line like **"Controller: Xbox Wireless Controller"** above "Press ESC or P to resume".
+5. **If the box has an orange warning, "This controller isn't in standard mode. Buttons may be wrong; try Xbox mode or Steam Input":** the browser doesn't recognise the button layout. Fixes, easiest first:
+   - **8BitDo and similar pads:** switch to **X-input / Xbox mode**. It's usually a switch on the back, or hold a button combo while turning it on (check the pad's manual).
+   - **Any pad:** run it through **Steam Input**. Open Steam → Settings → Controller and enable your pad type; Steam then presents it as an Xbox pad.
+   - **PlayStation pads:** a DualShock 4 or DualSense over USB usually works as-is in Chrome. If not, use Steam Input.
+6. **If no box ever appears:** press a controller button again while the game window is in front. Check the pause screen: it says **"Controller: none. Press any controller button to connect."** until Chrome shows the pad. If it stays at none, check whether Windows sees it (search "Set up USB game controllers" in the Start menu) and close other apps that might grab it exclusively.
+7. **If the pause screen says "using 1 of 2 listed",** Windows has a second (often virtual) controller. Pressing a button on your real one makes the game switch to it.
+
+**Checks:** typecheck ✓, 158 tests ✓, build ✓, smoke ✓, `scenario-ui-hud.mjs` ✓.
+- New unit tests with fake pads cover:
+  - a parked mouse plus pad play aiming at the opponent;
+  - a 1–2 px mouse jiggle not stealing aim, while real movement does;
+  - stick, RT, A, B and Start (one pause per press);
+  - choosing standard and newest over a vJoy decoy, then switching to the pad being pressed and staying with it;
+  - resting non-standard trigger axes not counting as activity;
+  - controller names, the connect/disconnect events, the non-standard warning, and a blocked API that doesn't throw.
+- New **`node scripts/scenario-ui-gamepad.mjs`** ✓ (after `npm run build`). It fakes `navigator.getGamepads` in the real game, with a decoy vJoy first and an Xbox pad second, and checks:
+  - the toast and stick movement;
+  - an RT kick auto-aiming despite a parked cursor, and right-stick aim;
+  - A dash and B Phase Dash;
+  - Start pause and resume, with the pause screen naming the controller;
+  - the non-standard warning for a non-standard-only pad, and the no-controller hint.
+- Screenshots I looked at:
+  - `pad-01-connected-toast.png`: "Controller connected: Xbox Wireless Controller" at the bottom during the countdown.
+  - `pad-03-pause.png`: the controls sheet, plus "Controller: Xbox Wireless Controller (using 1 of 2 listed)".
+  - `pad-04-nonstandard-warning.png`: an orange-bordered box with the warning line.
+- `scenario-integration.mjs` (lead's) passed in most runs but is **flaky on the lead branch too**, without my change. When the sparring bot hits P1 just as the script presses Space or Q, P1 is in hitstun and the sim correctly refuses the dash (I logged `hitstun > 0` in the failing run). Its "Phase Dash spent half a bar" check can also fail when aura is gained during the 1 s window. Suggestion for the lead: retry the press when P1 is in hitstun, and measure the spend from the `phaseDash` event.
+
+**Gamepad request for lead:** none required; the toast and pause line work through the input module. `createKeyboardInput()` now also exposes `pad()` (the controller in use) if `main.ts` ever wants it.
+
+## Pressure pass (built on the lead branch with pause/rematch/mute)
 Built against commit 74d84d3's contract (`phaseDash`, `winded`, `heat`, `finalRush`, `noAura`). The sim rules are being built in parallel, so on this branch everything below is proven with fake events in the test bench.
 
 **What changed**
@@ -100,7 +141,7 @@ Screenshots I looked at: `ui-11-pause-controls.png` (two-column sheet, readable 
 
 ## Known issues / not done
 - The stub sim never counts the round timer down, so on this branch alone the in-game timer stays at 90. The real sim does count it down.
-- Gamepad was tested with fake pad objects in unit tests only. No physical pad here.
+- Gamepad was tested with fake pads (unit tests, and a fake `navigator.getGamepads` in the real game). There's no physical pad here, so the owner's controller model is still the real test.
 - The charge whine is state-driven (the sim has no "charge started" event). The audio module polls the last state it was given every 40 ms, or the loop can call `audio.update(state)` each frame for exact timing.
 - Callout text can overlap a fighter near the top of the arena. It's short-lived and outlined, so it stays readable.
 - If the browser blocks audio until a gesture, the first countdown of the very first match is silent until you click or press a key.
