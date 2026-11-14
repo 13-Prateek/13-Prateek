@@ -15,10 +15,19 @@ try { ({ chromium } = require('playwright')); }
 catch { ({ chromium } = await import('/opt/node22/lib/node_modules/playwright/index.mjs').catch(() => ({}))); }
 if (!chromium) { console.error('playwright not found'); process.exit(2); }
 
-const PORT = 4179;
+// Each worktree/session can pick its own port so parallel smoke runs don't collide.
+const PORT = Number(process.env.SMOKE_PORT) || 4179;
 mkdirSync('playtest-shots', { recursive: true });
 const server = spawn(process.execPath, ['node_modules/vite/bin/vite.js', 'preview', '--port', String(PORT), '--strictPort'], { stdio: 'pipe' });
-await new Promise((r) => setTimeout(r, 2500));
+// Wait until the preview server actually answers (fixed sleeps were flaky).
+{
+  const deadline = Date.now() + 20000;
+  for (;;) {
+    try { if ((await fetch(`http://localhost:${PORT}/`)).ok) break; } catch { /* not up yet */ }
+    if (Date.now() > deadline) { console.error(`SMOKE FAIL: preview server not answering on port ${PORT}`); server.kill(); process.exit(1); }
+    await new Promise((r) => setTimeout(r, 200));
+  }
+}
 
 const errors = [];
 const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });

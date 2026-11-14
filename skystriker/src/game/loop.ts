@@ -4,14 +4,14 @@
  * smooth at any monitor refresh rate and the sim stays deterministic.
  */
 import { SIM_DT } from '../shared/constants';
-import type { AIController, AudioSystem, HudSystem, InputFrame, InputSource, MatchState, Renderer } from '../shared/types';
+import type { AIController, AudioSystem, HudSystem, InputFrame, InputSource, MatchConfig, MatchState, Renderer } from '../shared/types';
 import { createMatch, stepMatch } from '../sim';
 
 const MAX_FRAME_SECONDS = 0.25; // avoid spiral of death after a tab switch
 
 export interface LoopDeps {
   renderer: Renderer;
-  audio: AudioSystem;
+  audio: AudioSystem & { update?(state: Readonly<MatchState>): void };
   hud: HudSystem;
   p1: InputSource;
   p2: InputSource | AIController;
@@ -22,7 +22,13 @@ export interface LoopDeps {
 const snapshot = (s: MatchState): MatchState => structuredClone(s);
 
 export function startGame(deps: LoopDeps) {
-  const state = createMatch({ heroes: ['kael', 'yuki'], roundsToWin: 2, seed: deps.seed ?? 1337 });
+  let matchCount = 0;
+  const config = (): MatchConfig => ({
+    heroes: ['kael', 'yuki'], roundsToWin: 2,
+    // A new seed per rematch, still derived deterministically from the base seed.
+    seed: ((deps.seed ?? 1337) + matchCount * 7919) | 0,
+  });
+  let state = createMatch(config());
   let prev = snapshot(state);
   let acc = 0;
   let last = performance.now();
@@ -51,13 +57,27 @@ export function startGame(deps: LoopDeps) {
     }
     deps.renderer.render(prev, state, paused ? 1 : acc / SIM_DT, dt);
     deps.hud.update(state);
+    deps.audio.update?.(state);
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
 
   return {
     state: () => state,
-    setPaused(p: boolean) { paused = p; },
+    isPaused: () => paused,
+    setPaused(p: boolean) {
+      paused = p;
+      if (!p) { acc = 0; last = performance.now(); } // no catch-up burst after unpausing
+    },
+    /** Start a fresh match in the same loop (rematch). */
+    restart() {
+      matchCount++;
+      state = createMatch(config());
+      prev = snapshot(state);
+      acc = 0;
+      paused = false;
+      if ('reset' in deps.p2) deps.p2.reset();
+    },
     stop() { running = false; },
   };
 }

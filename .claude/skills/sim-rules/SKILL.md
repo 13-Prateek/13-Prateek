@@ -24,7 +24,7 @@ description: Determinism, physics and testing rules for Skystriker's simulation 
 - Keep the resolution order from GDD §4: **foot before body**. Perfect window uses time-to-impact (distance / closing speed), not raw distance.
 
 ## Hitstop
-- While `state.hitstop > 0`: decrement it and **skip physics**, but still record `prevInput` so edge detection doesn't fire twice.
+- While `state.hitstop > 0`: decrement it and **skip physics**, and do **not** update `prevInput`. A press made during the freeze then registers as an edge on the first tick after it (input buffering), so presses are never lost during hitstop. (Decided in wave 1 integration.)
 
 ## Events
 - Emit an event for everything presentation needs to react to (GDD + `GameEvent` union). Events carry positions so VFX can spawn at the right spot.
