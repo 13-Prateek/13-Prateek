@@ -14,7 +14,7 @@ import { elementAdvantage } from '../shared/heroes';
 import type { FighterState, GameEvent, InputFrame, MatchState, PlayerId } from '../shared/types';
 import { lerp, norm } from '../shared/vec';
 import { footTouches, isPerfect, kickBall, releaseBall } from './kick';
-import { addHitstop, bodyOverlap, callout, copy, dangerRaw, gainAura, heroOf, isEnemyLive, moveVec, other } from './util';
+import { addHitstop, bodyOverlap, callout, copy, dangerRaw, gainAura, heroOf, isEnemyLive, moveVec } from './util';
 
 export interface TickCtx {
   state: MatchState;
@@ -199,5 +199,3 @@ export function updateCloseCalls(ctx: TickCtx): void {
     f.closeCall = 0;
   }
 }
-
-export const opponentOf = (state: MatchState, f: FighterState): FighterState => state.fighters[other(f.id)];
