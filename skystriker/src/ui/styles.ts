@@ -48,6 +48,16 @@ export const HUD_CSS = /* css */ `
 @keyframes ss-aura { from { filter:brightness(1); } to { filter:brightness(1.35); } }
 .ss-aura.gain { animation:ss-gain .45s ease-out; }
 @keyframes ss-gain { 0%{box-shadow:0 0 0 0 #fff} 30%{box-shadow:0 0 22px 8px #fff} 100%{box-shadow:0 0 12px 2px #9fe8ff} }
+.ss-aura > b.ss-notch { position:absolute; top:-2px; bottom:-2px; width:2px; margin-left:-1px; background:rgba(255,255,255,.55);
+  box-shadow:0 0 3px #000; }
+.ss-phase { font-size:14px; letter-spacing:2px; padding:1px 8px; border-radius:3px; border:2px solid rgba(255,255,255,.18);
+  color:rgba(207,227,255,.4); transform:skewX(-12deg); white-space:nowrap; }
+.ss-phase.ready { color:#05060d; background:#b8f3ff; border-color:#fff; box-shadow:0 0 10px #7fe3ff; }
+.ss-aurarow.noaura { animation:ss-noaura .4s linear; }
+.ss-aurarow.noaura .ss-aura { border-color:#ff3048; box-shadow:0 0 14px 2px #ff3048; background:rgba(120,10,24,.85); }
+.ss-aurarow.noaura .ss-phase { color:#fff; background:#ff3048; border-color:#ff3048; }
+@keyframes ss-noaura { 0%{transform:translateX(0)} 15%{transform:translateX(-6px)} 35%{transform:translateX(5px)}
+  55%{transform:translateX(-4px)} 75%{transform:translateX(2px)} 100%{transform:translateX(0)} }
 .ss-infused { font-size:15px; letter-spacing:2px; padding:1px 8px; border-radius:3px; color:#05060d; display:none;
   animation:ss-blink .35s ease-in-out infinite alternate; }
 .ss-infused.on { display:block; }
@@ -61,6 +71,8 @@ export const HUD_CSS = /* css */ `
 .ss-timer.sd { color:#ffcf3a; font-size:40px; text-shadow:0 0 16px #ff8a00; animation:ss-tick .5s steps(1) infinite; }
 @keyframes ss-tick { 0%{transform:scale(1.12)} 50%{transform:scale(1)} }
 .ss-round { margin-top:6px; font-size:16px; letter-spacing:3px; color:#9fb4dd; }
+.ss-round.rush { color:#ff6a3a; text-shadow:0 0 10px #ff3a1a; animation:ss-blink .4s ease-in-out infinite alternate; }
+.ss-timer.rush { color:#ff6a3a; text-shadow:0 0 18px #ff3a1a; border-color:#ff6a3a; animation:ss-tick .5s steps(1) infinite; }
 
 /* ---------------- combo counter ---------------- */
 .ss-combo { position:absolute; top:150px; display:none; flex-direction:column; align-items:flex-start; transform:skewX(-10deg); }
@@ -125,6 +137,17 @@ export const HUD_CSS = /* css */ `
 @keyframes ss-punch-hold { 0%{transform:scale(1.6);opacity:0} 40%{transform:scale(.95);opacity:1} 60%{transform:scale(1.03)} 100%{transform:scale(1)} }
 @keyframes ss-fadeout { to { opacity:0; transform:scale(.9); } }
 @keyframes ss-blink { from{opacity:1} to{opacity:.35} }
-.ss-pause .what { font-size:120px; --hc:#5a7dff; }
-.ss-pause .hint { animation:none; color:#9fb4dd; }
+.ss-pause { gap:10px; background:rgba(5,6,13,.9); }
+.ss-pause .what { font-size:84px; --hc:#5a7dff; }
+.ss-pause .hint { margin-top:6px; font-size:24px; animation:none; color:#9fb4dd; }
+.ss-help { display:flex; gap:34px; align-items:flex-start; width:1440px; padding:18px 26px; border:2px solid #2b3a67; border-radius:10px;
+  background:rgba(12,16,34,.9); font-family:system-ui,"Segoe UI",sans-serif; font-weight:600; color:#dbe7ff; }
+.ss-help-col { flex:1 1 0; }
+.ss-help h3 { margin:0 0 10px; font:900 22px "Arial Black",system-ui,sans-serif; letter-spacing:4px; color:#7fe3ff; }
+.ss-controls { width:100%; border-collapse:collapse; font-size:21px; }
+.ss-controls th { text-align:left; font-size:15px; letter-spacing:2px; color:#7f95c8; text-transform:uppercase; padding:0 8px 6px; }
+.ss-controls td { padding:5px 8px; border-top:1px solid rgba(90,125,255,.18); }
+.ss-controls td.act { color:#ffd166; white-space:nowrap; }
+.ss-rule { margin:0 0 12px; font-size:20px; line-height:1.3; }
+.ss-rule b { color:#ffd166; margin-right:4px; }
 `;

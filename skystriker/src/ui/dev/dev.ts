@@ -13,6 +13,7 @@ import { HEROES } from '../../shared/heroes';
 import type { Element, GameEvent, MatchState, PlayerId } from '../../shared/types';
 import { createHud } from '..';
 import { hex } from '../model';
+import { PHASE_DASH_COST } from '../controls';
 import { fakeHit, fakeState, fakeTick } from './fake';
 
 const params = new URLSearchParams(location.search);
@@ -44,6 +45,7 @@ const P = (id: PlayerId) => s.fighters[id];
 const callout = (text: string, player: PlayerId | null, tier: 1 | 2 | 3): GameEvent => ({ type: 'callout', text, player, tier });
 
 function reset() {
+  document.querySelectorAll('.ss-banner, .ss-callout').forEach((e) => e.remove()); // clean slate between scenes
   s = fakeState();
   timeline = [];
   paused = false;
@@ -109,7 +111,29 @@ const scenes: Record<string, () => void> = {
     fire([{ type: 'superStart', player: 0, element: 'fire', name: HEROES.kael.superName }]);
     at(0.05, () => { P(0).aura = 0; });
   },
-  pause() { playing(62); P(0).hp = 80; P(1).hp = 55; paused = true; hud.setPaused(true); },
+  pause() { playing(62); P(0).hp = 80; P(1).hp = 55; P(0).aura = 75; paused = true; hud.setPaused(true); },
+  noaura() {
+    // P1 has 30 aura (not enough for a Phase Dash), P2 has 175 (PHASE READY).
+    playing(48); P(0).aura = 30; P(1).aura = 175;
+    at(0.15, () => fire([{ type: 'noAura', player: 0, action: 'phaseDash' }]));
+  },
+  heat() {
+    // A rally: each return heats the ball; level 4 = MAX HEAT!
+    playing(66); P(0).aura = 120; P(1).aura = 60;
+    const kick = (p: PlayerId, level: number) => () => {
+      s.ball.heat = level;
+      fire([
+        { type: 'kick', player: p, pos: { ...P(p).pos }, dir: { x: p === 0 ? 1 : -1, y: 0 }, speed: 1400 + 150 * level, power: 0.5, perfect: false, curve: false, element: null },
+        { type: 'heat', level, pos: { ...s.ball.pos } },
+      ]);
+    };
+    for (let i = 1; i <= 4; i++) at(0.05 + (i - 1) * 0.4, kick(((i + 1) % 2) as PlayerId, i));
+  },
+  rush() {
+    // 21 s left; Final Rush kicks in at 20 s.
+    playing(21); P(0).hp = 47; P(1).hp = 52; P(0).aura = 160; P(1).aura = 90;
+    at(1.0, () => { s.finalRush = true; s.ball.heat = Math.max(1, s.ball.heat ?? 0); fire([{ type: 'finalRush' }]); });
+  },
   demo() {
     // A whole scripted round: countdown → exchanges → KO → round 2 countdown.
     reset();
@@ -143,7 +167,7 @@ document.getElementById('app')!.appendChild(canvas);
 const g = canvas.getContext('2d')!;
 let lastAim = { x: 0, y: 0 };
 let lastFrameText = '';
-let prevKick = false, prevDash = false;
+let prevKick = false, prevDash = false, prevPhase = false;
 
 function stepPlayer() {
   const f = input.sample(s, 0);
@@ -169,10 +193,22 @@ function stepPlayer() {
       fire([{ type: 'kickStart', player: 0, charge: me.charge }]);
       me.charge = 0;
     }
-    if (f.dash && !prevDash) fire([{ type: 'dash', player: 0, pos: { ...me.pos }, dir: { x: f.moveX || 1, y: f.moveY } }]);
+    if (f.dash && !prevDash) {
+      fire([{ type: 'dash', player: 0, pos: { ...me.pos }, dir: { x: f.moveX || 1, y: f.moveY } }]);
+      at(0.25, () => fire([{ type: 'winded', player: 0, ticks: 20 }]));
+    }
+    if (f.phaseDash && !prevPhase) {
+      if (me.aura >= PHASE_DASH_COST) {
+        me.aura -= PHASE_DASH_COST;
+        fire([{ type: 'phaseDash', player: 0, pos: { ...me.pos }, dir: { x: f.moveX || 1, y: f.moveY } }]);
+        at(0.3, () => fire([{ type: 'winded', player: 0, ticks: 40 }]));
+      } else {
+        fire([{ type: 'noAura', player: 0, action: 'phaseDash' }]);
+      }
+    }
   }
-  prevKick = f.kick; prevDash = f.dash;
-  const on = (['kick', 'trap', 'dash', 'infuse', 'guard', 'super'] as const).filter((k) => f[k]);
+  prevKick = f.kick; prevDash = f.dash; prevPhase = !!f.phaseDash;
+  const on = (['kick', 'trap', 'dash', 'infuse', 'phaseDash', 'super'] as const).filter((k) => f[k]);
   lastFrameText = `move (${f.moveX.toFixed(2)}, ${f.moveY.toFixed(2)})  aim (${f.aimX.toFixed(2)}, ${f.aimY.toFixed(2)})  held: ${on.join(' ') || '-'}  device: ${input.lastDevice()}`;
 }
 
@@ -267,6 +303,18 @@ const SOUNDS: Record<string, () => GameEvent[]> = {
   KO: () => fakeHit(s, 0, 100, 1),
   'Super': () => [{ type: 'superStart', player: 0, element: 'fire', name: HEROES.kael.superName }],
   'Sudden death': () => { s.suddenDeath = true; return [{ type: 'suddenDeath' }]; },
+  'Phase dash': () => {
+    at(0.3, () => fire([{ type: 'winded', player: 0, ticks: 40 }]));
+    return [{ type: 'phaseDash', player: 0, pos: pos(0), dir: { x: 1, y: 0 } }];
+  },
+  Winded: () => [{ type: 'winded', player: 0, ticks: 30 }],
+  'No aura': () => [{ type: 'noAura', player: 0, action: 'phaseDash' }],
+  'Heat rally 1-4': () => { scenes.heat(); return []; },
+  'Hot kick (heat 4)': () => {
+    s.ball.heat = 4;
+    return [{ type: 'kick', player: 0, pos: pos(0), dir: { x: 1, y: 0 }, speed: 2300, power: 0.6, perfect: false, curve: false, element: null }];
+  },
+  'Final Rush': () => { s.finalRush = true; return [{ type: 'finalRush' }]; },
 };
 
 function buildBench() {
@@ -300,7 +348,7 @@ function buildBench() {
   bench.appendChild(help);
   const tip = document.createElement('div');
   tip.style.cssText = 'margin-top:4px;color:#7f95c8';
-  tip.textContent = 'WASD fly the orange ring · mouse aims (white line) · J/LMB kick · K/RMB trap · Space/Shift dash · E/Q/R · Esc/P pause · H hides this panel';
+  tip.textContent = 'WASD fly the orange ring · mouse aims (white line) · J/LMB kick · K/RMB trap · Space/Shift dash · Q phase dash (½ aura bar) · Esc/P pause (shows controls) · H hides this panel';
   bench.appendChild(tip);
   window.addEventListener('keydown', (e) => { if (e.code === 'KeyH') bench.classList.toggle('hidden'); });
 }
@@ -398,12 +446,20 @@ async function renderEach() {
     matchEnd: [{ type: 'matchEnd', winner: 0 }],
     superStart: [{ type: 'superStart', player: 0, element: 'fire', name: 'X' }],
     suddenDeath: [{ type: 'suddenDeath' }],
+    phaseDash: [{ type: 'phaseDash', player: 0, pos: p0, dir: { x: 1, y: 0 } }],
+    winded: [{ type: 'winded', player: 0, ticks: 30 }],
+    noAura: [{ type: 'noAura', player: 0, action: 'phaseDash' }],
+    finalRush: [{ type: 'finalRush' }],
+    heatUp1: [{ type: 'heat', level: 1, pos: p0 }],
+    heatUpMax: [{ type: 'heat', level: 4, pos: p0 }],
+    kickHeat4: [{ type: 'kick', player: 0, pos: p0, dir: { x: 1, y: 0 }, speed: 2300, power: 0.6, perfect: false, curve: false, element: null }],
   };
   const out: Record<string, number> = {};
   for (const [name, events] of Object.entries(cases)) {
     const ctx = new OfflineAudioContext(2, 44100 * 3, 44100);
     const eng = createEngine(ctx);
     eng.mixer.setMaster(0.8, 0);
+    st.ball.heat = name === 'kickHeat4' ? 4 : 0;
     if (name === 'chargeWhine') {
       const cs = fakeState();
       cs.phase = 'playing';

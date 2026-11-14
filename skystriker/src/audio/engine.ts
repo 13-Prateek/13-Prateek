@@ -7,6 +7,10 @@ import type { GameEvent, MatchState, Vec2 } from '../shared/types';
 import { createMixer } from './mixer';
 import { createMusic } from './music';
 import { createSounds } from './sounds';
+import * as C from '../shared/constants';
+
+/** Max rally Heat (the sim's HEAT_MAX once it exists; GDD §3 says 4). */
+const HEAT_MAX: number = typeof (C as Record<string, unknown>).HEAT_MAX === 'number' ? (C as Record<string, unknown>).HEAT_MAX as number : 4;
 
 /** Music goes to intensity 2 when either fighter is at or below this HP. */
 export const LOW_HP_MUSIC = 30;
@@ -42,13 +46,14 @@ export function createEngine(ctx: BaseAudioContext, destination?: AudioNode) {
       case 'roundStart': case 'countdown': return finalRound ? 1 : 0;
       case 'fight': return finalRound || s.suddenDeath ? 2 : 1;
       case 'hit': case 'wallSplat': return lowHp || finalRound || s.suddenDeath ? 2 : null;
-      case 'suddenDeath': return 2;
+      case 'suddenDeath': case 'finalRush': return 2;
       case 'matchEnd': return 0;
       default: return null;
     }
   }
 
   function handleEvents(events: readonly GameEvent[], s: Readonly<MatchState>, t = ctx.currentTime) {
+    const heat = s.ball.heat ?? 0; // state is post-tick, so this already includes any heat change
     for (const e of events) {
       switch (e.type) {
         case 'kickStart': // the kick goes active (button released); fires on whiffs too
@@ -59,18 +64,23 @@ export function createEngine(ctx: BaseAudioContext, destination?: AudioNode) {
         case 'chargeFull': sounds.chargeFull(t, s.fighters[e.player]?.pos); break;
         case 'kick':
           sounds.stopCharge(t, e.player);
-          sounds.kick(t, e.power, e.pos, e.curve, e.element);
+          sounds.kick(t, e.power, e.pos, e.curve, e.element, heat);
           if (e.perfect) sounds.perfect(t, e.pos);
           break;
         case 'trap': sounds.trap(t, e.pos); break;
-        case 'bounce': sounds.bounce(t, e.speed, e.pos); break;
+        case 'bounce': sounds.bounce(t, e.speed, e.pos, heat); break;
         case 'hit':
           sounds.stopCharge(t, e.target);
           sounds.hit(t, e.damage, e.combo, e.pos, e.element);
           break;
         case 'wallSplat': sounds.wallSplat(t, e.pos); break;
         case 'clash': sounds.clash(t, e.pos); break;
-        case 'closeCall': sounds.closeCall(t, e.pos); break;
+        case 'closeCall': sounds.closeCall(t, e.pos, heat); break;
+        case 'heat': sounds.heatUp(t, e.level, HEAT_MAX, e.pos); break;
+        case 'phaseDash': sounds.phaseDash(t, e.pos); break;
+        case 'winded': sounds.winded(t, s.fighters[e.player]?.pos); break;
+        case 'noAura': sounds.noAura(t); break;
+        case 'finalRush': sounds.finalRush(t); break;
         case 'dash':
           sounds.dash(t, e.pos);
           if ((e as { wallKick?: boolean }).wallKick) sounds.wallKick(t, e.pos);

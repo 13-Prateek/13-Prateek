@@ -10,6 +10,14 @@ import { type Mixer, jitter } from './mixer';
 export const panOf = (pos?: Vec2): number => (pos ? ((pos.x / WORLD_W) * 2 - 1) * 0.55 : 0);
 const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
 
+/* ---- Tuning knobs (pressure pass) ---- */
+/** Ball-sound pitch rise per Heat level (0.07 = +7% per level). */
+export const HEAT_PITCH_PER_LEVEL = 0.07;
+/** Ball-sound loudness rise per Heat level. */
+export const HEAT_GAIN_PER_LEVEL = 0.1;
+const heatPitch = (heat: number) => 1 + HEAT_PITCH_PER_LEVEL * Math.max(0, heat);
+const heatGain = (heat: number) => 1 + HEAT_GAIN_PER_LEVEL * Math.max(0, heat);
+
 export type Sounds = ReturnType<typeof createSounds>;
 
 export function createSounds(m: Mixer) {
@@ -41,13 +49,14 @@ export function createSounds(m: Mixer) {
 
   const api = {
     /** Kick contact: noise snap + pitched thump; pitch and weight rise with power. */
-    kick(t: number, power: number, pos?: Vec2, curve = false, element: Element | null = null) {
-      const p = clamp01(power), pan = panOf(pos);
+    kick(t: number, power: number, pos?: Vec2, curve = false, element: Element | null = null, heat = 0) {
+      const p = clamp01(power), pan = panOf(pos), hp = heatPitch(heat), hg = heatGain(heat);
       const v = m.voice('kick', t, 0.45, { pan, max: 4, prio: 3, reverb: 0.05 + 0.15 * p });
       if (!v) return;
-      const j = jitter();
-      m.tone(v, 'sine', t, 0.11 + 0.14 * p, (150 + 130 * p) * j, 48, 0.75 + 0.25 * p);
-      m.noise(v, t, 0.05 + 0.03 * p, 0.45 + 0.2 * p, { type: 'bandpass', f0: 2600 * j, f1: 900, q: 0.8 });
+      const j = jitter() * hp;
+      m.tone(v, 'sine', t, 0.11 + 0.14 * p, (150 + 130 * p) * j, 48, (0.75 + 0.25 * p) * hg);
+      m.noise(v, t, 0.05 + 0.03 * p, (0.45 + 0.2 * p) * hg, { type: 'bandpass', f0: 2600 * j, f1: 900, q: 0.8 });
+      if (heat > 0) m.tone(v, 'sawtooth', t, 0.12 + 0.03 * heat, 440 * hp * hp, 220 * hp, 0.03 * heat, { filter: 2400 + 600 * heat }); // hot edge
       if (p > 0.55) m.tone(v, 'sine', t, 0.35, 70, 32, 0.5 * p); // sub boom on power kicks
       if (curve) m.tone(v, 'triangle', t + 0.02, 0.28, 900, 2200, 0.08);
       if (element) elementLayer(element, t, pan, 0.6 + 0.4 * p);
@@ -111,11 +120,11 @@ export function createSounds(m: Mixer) {
       m.tone(v, 'sine', t + 0.05, 0.4, 2349, null, 0.14);
       m.tone(v, 'triangle', t, 0.12, 784, 1568, 0.1);
     },
-    bounce(t: number, speed: number, pos?: Vec2) {
-      const a = clamp01(speed / 1700);
+    bounce(t: number, speed: number, pos?: Vec2, heat = 0) {
+      const a = clamp01(speed / 1700) * heatGain(heat), hp = heatPitch(heat);
       const v = m.voice('bounce', t, 0.08, { pan: panOf(pos), max: 3, prio: 0 });
       if (!v) return;
-      m.tone(v, 'sine', t, 0.05, 1400 * jitter(0.08), 700, 0.08 + 0.22 * a);
+      m.tone(v, 'sine', t, 0.05, 1400 * hp * jitter(0.08), 700 * hp, 0.08 + 0.22 * a);
       m.noise(v, t, 0.025, 0.1 + 0.2 * a, { type: 'highpass', f0: 3000 });
     },
     hit(t: number, damage: number, combo: number, pos?: Vec2, element: Element | null = null) {
@@ -154,11 +163,62 @@ export function createSounds(m: Mixer) {
       m.tone(v, 'triangle', t + 0.08, 0.5, 2637, null, 0.08);
       m.noise(v, t, 0.35, 0.3, { type: 'bandpass', f0: 700, f1: 5000, q: 1.5, attack: 0.04 });
     },
-    closeCall(t: number, pos?: Vec2) {
+    /** Heat went up: a short rising sting, higher and brighter per level; MAX gets a crackle. */
+    heatUp(t: number, level: number, max: number, pos?: Vec2) {
+      if (level <= 0) return;
+      const v = m.voice('heat', t, 0.5, { pan: panOf(pos), max: 2, prio: 4, reverb: 0.2 });
+      if (!v) return;
+      const f = 523.25 * Math.pow(2, (level - 1) * 3 / 12); // climbs a minor third per level
+      m.tone(v, 'square', t, 0.09, f, null, 0.1, { filter: 3000 });
+      m.tone(v, 'square', t + 0.07, 0.16, f * 1.5, null, 0.1, { filter: 3500 });
+      m.noise(v, t, 0.18, 0.08 + 0.04 * level, { type: 'bandpass', f0: 1500, f1: 6000, q: 1.5 });
+      if (level >= max) {
+        m.tone(v, 'sawtooth', t + 0.12, 0.35, f * 2, f * 2.6, 0.06, { filter: 5000 });
+        m.noise(v, t + 0.1, 0.3, 0.2, { type: 'highpass', f0: 3500, drive: true });
+      }
+    },
+    /** Phase Dash: a ghostly, hollow swell, clearly not the free dash's whoosh. */
+    phaseDash(t: number, pos?: Vec2) {
+      const v = m.voice('phase', t, 0.7, { pan: panOf(pos), max: 2, prio: 4, reverb: 0.55 });
+      if (!v) return;
+      m.tone(v, 'sine', t, 0.45, 1760, 660, 0.09, { attack: 0.06 });
+      m.tone(v, 'sine', t, 0.45, 1766, 664, 0.07, { attack: 0.06, detune: 30 });
+      m.tone(v, 'triangle', t, 0.4, 220, 440, 0.12, { attack: 0.08 });
+      m.noise(v, t, 0.42, 0.22, { type: 'bandpass', f0: 4500, f1: 700, q: 6, attack: 0.08 });
+    },
+    /** Winded: a soft breathy huff. */
+    winded(t: number, pos?: Vec2) {
+      const v = m.voice('huff', t, 0.3, { pan: panOf(pos), max: 2, prio: 1 });
+      if (!v) return;
+      m.noise(v, t, 0.24, 0.16, { type: 'bandpass', f0: 900, f1: 450, q: 0.9, attack: 0.03 });
+      m.tone(v, 'sine', t, 0.2, 180, 110, 0.06, { attack: 0.02 });
+    },
+    /** Not enough aura: two soft low buzzes. */
+    noAura(t: number) {
+      const v = m.voice('noaura', t, 0.3, { max: 1, prio: 3 });
+      if (!v) return;
+      m.tone(v, 'square', t, 0.08, 110, null, 0.08, { filter: 700 });
+      m.tone(v, 'square', t + 0.11, 0.1, 98, null, 0.08, { filter: 700 });
+    },
+    /** Final Rush: low brass stab + riser + drum hit. */
+    finalRush(t: number) {
+      const v = m.voice('rush', t, 1.6, { max: 1, prio: 8, reverb: 0.45 });
+      if (!v) return;
+      for (const f of [110, 164.8, 220, 261.6]) {
+        m.tone(v, 'sawtooth', t, 0.9, f, null, 0.1, { filter: 1600, attack: 0.01 });
+        m.tone(v, 'sawtooth', t, 0.9, f, null, 0.07, { filter: 1600, detune: -14 });
+      }
+      m.tone(v, 'sine', t, 0.6, 80, 30, 0.9);
+      m.noise(v, t, 0.5, 0.3, { type: 'lowpass', f0: 3000, f1: 300 });
+      m.noise(v, t + 0.5, 1.0, 0.18, { type: 'bandpass', f0: 400, f1: 5000, q: 1.2, attack: 0.9 });
+      m.duckMusic(t, 0.35, 0.6);
+    },
+    closeCall(t: number, pos?: Vec2, heat = 0) {
       const v = m.voice('close', t, 0.45, { pan: panOf(pos), max: 2, prio: 2 });
       if (!v) return;
-      m.noise(v, t, 0.38, 0.4, { type: 'bandpass', f0: 500, f1: 3500, q: 2.5, attack: 0.12 });
-      m.tone(v, 'sine', t, 0.3, 300, 900, 0.05, { attack: 0.1 });
+      const hp = heatPitch(heat); // a hotter ball whooshes higher and harder
+      m.noise(v, t, 0.38, 0.4 * heatGain(heat), { type: 'bandpass', f0: 500 * hp, f1: 3500 * hp, q: 2.5, attack: 0.12 });
+      m.tone(v, 'sine', t, 0.3, 300 * hp, 900 * hp, 0.05, { attack: 0.1 });
     },
     dash(t: number, pos?: Vec2) {
       const v = m.voice('dash', t, 0.25, { pan: panOf(pos), max: 2, prio: 2 });
