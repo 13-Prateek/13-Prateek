@@ -57,6 +57,23 @@ try {
   await step(80); await shot('14-infuse');
   await play('sudden'); await step(260); await shot('15-sudden-death');
   await play('idle'); await step(90); await shot('16-idle');
+  // pressure pass
+  const stepWhile = (fnSrc, limit = 600) => page.evaluate(([src, lim]) => {
+    const pred = new Function('v', 'return ' + src);
+    let n = 0;
+    while (!pred(window.__vfx) && n < lim) { window.__vfx.step(1); n++; }
+    return n;
+  }, [fnSrc, limit]);
+  await play('heat'); await stepWhile('(v.state().ball.heat ?? 0) >= 2'); await step(16); await shot('17-heat-2');
+  await stepWhile('(v.state().ball.heat ?? 0) >= 4'); await step(14); await shot('18-heat-4');
+  await until('hit', 14); await shot('19-heat-reset');
+  await play('phase'); await until('phaseDash');
+  await stepWhile('Math.hypot(v.state().ball.pos.x - v.state().fighters[0].pos.x, v.state().ball.pos.y - v.state().fighters[0].pos.y) < 40', 60);
+  await shot('20-phase-through');
+  await until('winded', 18); await shot('21-winded-after-phase');
+  await play('winded'); await step(58); await shot('22-winded-punish');
+  await play('finalrush'); await until('finalRush', 5); await shot('23-final-rush-flash');
+  await step(220); await shot('24-final-rush-walls');
 
   // frame-time check: real-time showcase of the busiest scenes
   const stats = await page.evaluate(async () => {
@@ -64,7 +81,7 @@ try {
     v.setManual(false);
     v.jsTime();
     const out = [];
-    for (const id of ['hit', 'trail', 'ko']) {
+    for (const id of ['hit', 'trail', 'heat', 'ko']) {
       v.play(id);
       const d = [];
       let maxP = 0;
@@ -74,7 +91,7 @@ try {
         const f = (now) => {
           d.push(now - last); last = now;
           maxP = Math.max(maxP, v.particles());
-          if (now - t0 < 5000 / 3) requestAnimationFrame(f); else resolve();
+          if (now - t0 < 5000 / 4) requestAnimationFrame(f); else resolve();
         };
         requestAnimationFrame(f);
       });

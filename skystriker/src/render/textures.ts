@@ -23,6 +23,8 @@ export interface FxTextures {
   chevron: Texture;
   /** Screen vignette, 256px. */
   vignette: Texture;
+  /** Screen-edge glow: transparent centre, white edges (tint for edge flashes), 256px. */
+  edge: Texture;
   /** Solid white (flashes). */
   white: Texture;
   /** Limb strip 4x16: white core of LIMB_CORE rows with soft transparent edges (anti-aliasing). */
@@ -136,13 +138,21 @@ export function getTextures(): FxTextures {
   vg.fillStyle = vgr;
   vg.fillRect(0, 0, 256, 256);
 
+  const [ec, eg] = canvas(256, 256);
+  const egr = eg.createRadialGradient(128, 128, 70, 128, 128, 182);
+  egr.addColorStop(0, 'rgba(255,255,255,0)');
+  egr.addColorStop(0.6, 'rgba(255,255,255,0.15)');
+  egr.addColorStop(1, 'rgba(255,255,255,1)');
+  eg.fillStyle = egr;
+  eg.fillRect(0, 0, 256, 256);
+
   const [lc, lm] = canvas(4, 16);
   lm.fillStyle = '#fff';
   lm.fillRect(0, 2, 4, LIMB_CORE);
 
   cache = {
     glow: tex(gc), disc: tex(dc), ring: tex(rc), ringSoft: tex(sc), streak: tex(stc),
-    swoosh: tex(swc), crack: tex(cc), chevron: tex(chc), vignette: tex(vc), white: Texture.WHITE, limb: tex(lc),
+    swoosh: tex(swc), crack: tex(cc), chevron: tex(chc), vignette: tex(vc), edge: tex(ec), white: Texture.WHITE, limb: tex(lc),
   };
   return cache;
 }

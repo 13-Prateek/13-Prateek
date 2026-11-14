@@ -4,7 +4,7 @@ import {
 } from '../shared/constants';
 import { HEROES } from '../shared/heroes';
 import type { FighterState, MatchState } from '../shared/types';
-import { ELEMENT_COLOR, mixColor } from './palette';
+import { ELEMENT_COLOR, FX, mixColor } from './palette';
 import { PKind, type ParticlePool, type TweenPool } from './pools';
 import { rrange } from './rng';
 import { LIMB_CORE, type FxTextures } from './textures';
@@ -139,6 +139,12 @@ export class FighterView {
   private time = 0;
   private lastPhase = 'idle';
   private chargeSparkAcc = 0;
+  /** 0..1 Winded slump (eased so the pose settles in / recovers smoothly). */
+  private slump = 0;
+  private puffAcc = 0;
+  private rippleT = 0;
+  private readonly phaseBubble: Sprite;
+  private readonly ghostMax = new Float32Array(GHOSTS);
   private emberAcc = 0;
   /** Set by VFX: seconds of pure white flash left (hit). */
   flash = 0;
@@ -162,7 +168,11 @@ export class FighterView {
     this.chargeRing.anchor.set(0.5);
     this.chargeRing.blendMode = 'add';
     this.rig = new Rig(tx);
-    this.root.addChild(this.aura, this.chargeRing, this.chevron, this.rig.root, this.footGlow);
+    this.phaseBubble = new Sprite(tx.ringSoft);
+    this.phaseBubble.anchor.set(0.5);
+    this.phaseBubble.blendMode = 'add';
+    this.phaseBubble.visible = false;
+    this.root.addChild(this.aura, this.chargeRing, this.chevron, this.rig.root, this.footGlow, this.phaseBubble);
     for (let i = 0; i < GHOSTS; i++) {
       const g = new Rig(tx, true);
       g.root.visible = false;
@@ -176,24 +186,29 @@ export class FighterView {
   /** Idle / flying pose into `p`. */
   private idlePose(p: Pose, f: FighterState, t: number): void {
     const sx = this.sx;
-    const th = this.lean;
+    const sl = this.slump;
+    const th = this.lean + sx * 0.55 * sl; // winded: hunched forward
     const ux = Math.sin(th), uy = -Math.cos(th); // torso up
     const sdx = -uy, sdy = ux; // body "right"
     const vx = f.vel.x / FIGHTER_MAX_SPEED, vy = f.vel.y / FIGHTER_MAX_SPEED;
     const tx = -vx * 16, ty = -vy * 16; // limbs trail behind motion
-    const bob = Math.sin(t * 2.4) * 2.5;
+    const bob = Math.sin(t * (2.4 + 5 * sl)) * (2.5 + 2 * sl); // winded: quick heavy panting
     const hipX = 0, hipY = 10 + bob;
     set(p, HIP, hipX, hipY);
     set(p, NECK, hipX + ux * TORSO, hipY + uy * TORSO);
-    set(p, HEAD, hipX + ux * (TORSO + NECK_LEN), hipY + uy * (TORSO + NECK_LEN));
-    const sw = Math.sin(t * 2.2) * 3, sw2 = Math.sin(t * 2.2 + 1.7) * 3;
-    set(p, FOOT_K, hipX - ux * 40 + sdx * (sx * 9 + sw) + tx, hipY - uy * 40 + sdy * (sx * 9 + sw) + ty);
-    set(p, FOOT_S, hipX - ux * 38 + sdx * (-sx * 7 + sw2) + tx * 1.4, hipY - uy * 38 + sdy * (-sx * 7 + sw2) + ty * 1.4);
+    // head droops forward and down when winded
+    set(p, HEAD, hipX + ux * (TORSO + NECK_LEN * (1 - 0.3 * sl)) + sdx * sx * 6 * sl, hipY + uy * (TORSO + NECK_LEN * (1 - 0.3 * sl)) + sdy * sx * 6 * sl + 4 * sl);
+    const sw = Math.sin(t * 2.2) * 3 * (1 - sl), sw2 = Math.sin(t * 2.2 + 1.7) * 3 * (1 - sl);
+    const legLen = 40 - 7 * sl;
+    set(p, FOOT_K, hipX - ux * legLen + sdx * (sx * 9 + sw) + tx, hipY - uy * 40 + sdy * (sx * 9 + sw) + ty);
+    set(p, FOOT_S, hipX - ux * (legLen - 2) + sdx * (-sx * 7 + sw2) + tx * 1.4, hipY - uy * 38 + sdy * (-sx * 7 + sw2) + ty * 1.4);
     ik(p, HIP, KNEE_K, FOOT_K, THIGH, SHIN, -sx);
     ik(p, HIP, KNEE_S, FOOT_S, THIGH, SHIN, -sx);
     const nx = p[NECK * 2], ny = p[NECK * 2 + 1];
-    set(p, HAND_F, nx - ux * 16 + sdx * sx * 22 + tx * 0.5, ny - uy * 16 + sdy * sx * 22 + ty * 0.5);
-    set(p, HAND_B, nx - ux * 24 - sdx * sx * 13 + tx * 0.9, ny - uy * 24 - sdy * sx * 13 + ty * 0.9);
+    // winded: arms hang limp
+    const hf = 16 + 16 * sl, hb = 24 + 8 * sl, af = 22 - 12 * sl, ab = 13 - 6 * sl;
+    set(p, HAND_F, nx - ux * hf + sdx * sx * af + tx * 0.5, ny - uy * hf + sdy * sx * af + ty * 0.5 + 6 * sl);
+    set(p, HAND_B, nx - ux * hb - sdx * sx * ab + tx * 0.9, ny - uy * hb - sdy * sx * ab + ty * 0.9 + 6 * sl);
     ik(p, NECK, ELB_F, HAND_F, UPPER_ARM, FOREARM, sx);
     ik(p, NECK, ELB_B, HAND_B, UPPER_ARM, FOREARM, -sx);
   }
@@ -317,6 +332,12 @@ export class FighterView {
     const p = this.pose;
     const t = this.anim;
     const ko = f.hp <= 0 && (state.phase === 'roundOver' || state.phase === 'matchOver');
+    const phasing = (f.phaseDashTimer ?? 0) > 0;
+    const winded = (f.winded ?? 0) > 0 && !ko && f.hitstun <= 0;
+    if (!frozen) {
+      const target = winded ? 1 : 0;
+      this.slump += (target - this.slump) * (1 - Math.exp(-(winded ? 14 : 6) * dt));
+    }
     let rot = 0;
 
     // swoosh + snap when a kick goes active (covers whiffs too)
@@ -330,7 +351,7 @@ export class FighterView {
       this.hitstunPose(p, f, ko ? 0 : t);
       const frac = ko ? 1 : f.hitstun / HITSTUN_TICKS;
       rot = (f.vel.x >= 0 ? 1 : -1) * frac * 0.7;
-    } else if (f.dashTimer > 0) {
+    } else if (f.dashTimer > 0 || phasing) {
       const vl = Math.hypot(f.vel.x, f.vel.y);
       if (vl > 1) this.dashPose(p, f.vel.x / vl, f.vel.y / vl); else this.idlePose(p, f, t);
     } else if (f.kickPhase === 'active') {
@@ -356,19 +377,24 @@ export class FighterView {
     // hitstop shudder on the victim
     let shx = 0;
     if (frozen && this.sinceHit < 0.6) shx = Math.sin(this.time * 90) * 3.5;
+    if (phasing) shx += Math.sin(this.time * 130) * 2.2; // phase shimmer: body jitters out of sync
     this.root.position.set(this.x + shx, this.y);
     this.rig.root.rotation = rot;
     this.rig.apply(p, kx, ky);
 
-    /* colour: hit flash > KO grey > hitstun flicker > invuln shimmer > hero colour */
+    /* colour: hit flash > KO grey > hitstun flicker > phase ghost > winded dim > hero colour.
+       (No shimmer for plain invulnerability: the free dash is no longer invulnerable.) */
     let tint = hero.color;
     let a = 1;
     if (this.flash > 0) tint = 0xffffff;
     else if (ko) { tint = mixColor(hero.color, 0x555566, 0.75); a = 0.65; }
     else if (f.hitstun > 0) tint = mixColor(hero.color, 0xffffff, 0.35 + 0.3 * (Math.sin(this.time * 40) > 0 ? 1 : 0));
-    else if (f.invulnTimer > 0) {
-      tint = mixColor(hero.color, 0xffffff, 0.45);
-      a = 0.45 + 0.35 * (0.5 + 0.5 * Math.sin(this.time * 55));
+    else if (phasing) {
+      tint = mixColor(hero.color, FX.PHASE_COLOR, 0.3);
+      a = 0.42 + 0.2 * (0.5 + 0.5 * Math.sin(this.time * 38));
+    } else if (this.slump > 0.02) {
+      tint = mixColor(hero.color, 0x4c5270, 0.45 * this.slump);
+      a = 1 - 0.15 * this.slump;
     }
     if (this.chargePulse > 0) tint = mixColor(tint, 0xffffff, this.chargePulse * 0.8);
     this.rig.setTint(tint);
@@ -381,7 +407,7 @@ export class FighterView {
     const pulse = 0.5 + 0.5 * Math.sin(this.time * pulseHz * 6.283);
     const full = ch >= 0.999;
     this.aura.tint = full ? mixColor(hero.color, 0xffffff, 0.35 + 0.3 * pulse) : hero.color;
-    this.aura.alpha = Math.min(1, ko ? 0.05 : 0.18 + ch * (0.6 + 0.3 * pulse) + this.chargePulse * 0.6 + (this.flash > 0 ? 0.5 : 0));
+    this.aura.alpha = Math.min(1, ko ? 0.05 : (0.18 + ch * (0.6 + 0.3 * pulse) + this.chargePulse * 0.6 + (this.flash > 0 ? 0.5 : 0)) * (1 - 0.7 * this.slump));
     this.aura.scale.set((160 + ch * 170 + this.chargePulse * 140) / 128);
     // focus ring tightens around the body as the kick charges
     if (charging && ch > 0.02) {
@@ -434,22 +460,51 @@ export class FighterView {
     this.chevron.position.set(kx * cd, ky * cd - 4);
     this.chevron.rotation = Math.atan2(ky, kx);
     this.chevron.tint = charging && full ? 0xffffff : hero.color;
-    this.chevron.alpha = ko ? 0 : charging ? 0.9 : 0.45;
+    this.chevron.alpha = ko ? 0 : (charging ? 0.9 : 0.45) * (1 - 0.5 * this.slump);
+
+    /* phase bubble: a hollow shimmering shell; flares (with ripples) when the ball passes through */
+    if (phasing) {
+      const b = state.ball;
+      const near = Math.hypot(b.pos.x - f.pos.x, b.pos.y - f.pos.y) < 34 + b.radius + 26;
+      this.phaseBubble.visible = true;
+      this.phaseBubble.tint = mixColor(hero.color, FX.PHASE_COLOR, 0.25);
+      this.phaseBubble.alpha = (near ? 0.8 : 0.45) + 0.12 * Math.sin(this.time * 31);
+      this.phaseBubble.scale.set(((near ? 120 : 104) + 6 * Math.sin(this.time * 23)) / 256);
+      this.phaseBubble.position.set(this.aura.position.x, this.aura.position.y);
+      this.rippleT -= dt;
+      if (near && this.rippleT <= 0) {
+        this.rippleT = 0.045;
+        this.fxAdd.spawn(this.tx.ring, b.pos.x, b.pos.y, 0, 24 / 244, 24 / 244, 90 / 244, 90 / 244, 0.9, 0, 0.22, FX.PHASE_COLOR, 3);
+      }
+    } else this.phaseBubble.visible = false;
+
+    /* winded: breath puffs from the head */
+    if (winded && !frozen) {
+      this.puffAcc += fxDt * 4.5;
+      while (this.puffAcc >= 1) {
+        this.puffAcc -= 1;
+        const hx = this.x + p[HEAD * 2] + this.sx * 10, hy = this.y + p[HEAD * 2 + 1] + 4;
+        this.parts.spawn(PKind.Dot, hx, hy, this.sx * rrange(40, 80), rrange(-50, -15), 0.7, 18, 38, 0xc4cbe0, 2.5, 0.7);
+      }
+    } else this.puffAcc = 0.6;
     this.chevron.scale.set(charging ? 0.8 + ch * 0.35 : 0.7);
 
     /* dash afterimages */
-    if (f.dashTimer > 0 && !frozen) {
+    /* afterimages: normal dash = short hero-coloured trail; phase dash = dense, long, pale ghost streak */
+    if ((f.dashTimer > 0 || phasing) && !frozen) {
       this.ghostTimer -= dt;
       if (this.ghostTimer <= 0) {
-        this.ghostTimer = 0.022;
-        const g = this.ghosts[this.ghostNext];
+        this.ghostTimer = phasing ? 0.02 : 0.022;
+        const gi = this.ghostNext;
+        const g = this.ghosts[gi];
         this.ghostNext = (this.ghostNext + 1) % GHOSTS;
         g.apply(p, kx, ky);
-        g.setTint(mixColor(hero.color, hero.accent, 0.3));
+        g.setTint(phasing ? mixColor(hero.color, FX.PHASE_COLOR, 0.4) : mixColor(hero.color, hero.accent, 0.3));
         g.root.position.set(this.x, this.y);
         g.root.rotation = rot;
         g.root.visible = true;
-        this.ghostLife[(this.ghostNext + GHOSTS - 1) % GHOSTS] = 0.26;
+        this.ghostMax[gi] = phasing ? 0.4 : 0.26;
+        this.ghostLife[gi] = this.ghostMax[gi];
       }
     } else this.ghostTimer = 0;
     for (let i = 0; i < GHOSTS; i++) {
@@ -457,7 +512,7 @@ export class FighterView {
       this.ghostLife[i] -= fxDt;
       const g = this.ghosts[i];
       if (this.ghostLife[i] <= 0) { g.root.visible = false; continue; }
-      g.root.alpha = (this.ghostLife[i] / 0.26) * 0.5;
+      g.root.alpha = (this.ghostLife[i] / this.ghostMax[i]) * (this.ghostMax[i] > 0.3 ? 0.32 : 0.5);
     }
   }
 }

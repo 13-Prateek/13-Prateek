@@ -10,6 +10,14 @@ export const FX = {
   GRID: 0x1b2550,
   WALL: 0x5b7cff,
   WALL_SUDDEN_DEATH: 0xff3b5c,
+  /** Final Rush walls: amber, distinct from sudden-death red. */
+  WALL_FINAL_RUSH: 0xffa41b,
+  /** Rally heat: white-gold the ball's glow/trail shifts toward as heat rises (ring stays owner colour). */
+  HEAT_COLOR: 0xfff0b0,
+  /** Highest heat level drawn (matches GDD §3: 0..4). */
+  HEAT_MAX: 4,
+  /** Phase Dash ghost tint (mixed with the hero colour). */
+  PHASE_COLOR: 0xe6dcff,
   /** Screen shake: max offset (world units) at trauma 1, decay per second, max roll (rad). */
   SHAKE_MAX: 22,
   SHAKE_DECAY: 1.6,

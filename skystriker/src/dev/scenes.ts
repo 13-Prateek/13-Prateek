@@ -15,6 +15,16 @@ export interface Scene {
   script(sim: FakeSim, t: number, mem: Record<string, number>): void;
 }
 
+/** Rally helper: when the ball is coming at `p` and close, `p` returns it toward the other fighter. */
+function returnIfClose(sim: FakeSim, p: 0 | 1, yOff: number, power: number): boolean {
+  const b = sim.state.ball, f = sim.state.fighters[p], o = sim.state.fighters[1 - p];
+  if (b.owner === p || b.mode === 'neutral') return false;
+  const toward = (f.pos.x - b.pos.x) * b.vel.x > 0;
+  if (!toward || Math.abs(b.pos.x - f.pos.x) > 100) return false;
+  sim.kick(p, o.pos.x - b.pos.x, o.pos.y + yOff - b.pos.y, power);
+  return true;
+}
+
 const place = (sim: FakeSim, p: 0 | 1, x: number, y: number, fx: number, fy = 0) => {
   const f = sim.state.fighters[p];
   f.pos = { x, y };
@@ -131,8 +141,8 @@ export const SCENES: Scene[] = [
     },
   },
   {
-    id: 'dash', label: 'Dashes + invulnerable', ticks: 220,
-    look: 'Dashes leave afterimages and speed streaks, the body stretches into a flying pose. From halfway, orange shimmers (invulnerable).',
+    id: 'dash', label: 'Dashes', ticks: 220,
+    look: 'Free dashes leave afterimages and speed streaks and the body stretches into a flying pose (no shimmer: a free dash is not invulnerable). After each dash the fighter briefly slumps (winded).',
     setup(sim) {
       place(sim, 0, 450, 450, 1); place(sim, 1, 1150, 450, -1);
       ballAt(sim, 800, 450);
@@ -144,7 +154,6 @@ export const SCENES: Scene[] = [
       if (t === 60) sim.dash(0, 0, 1);
       if (t === 80) sim.dash(1, 1, 1);
       if (t === 100) sim.dash(0, -1, -0.2);
-      if (t === 110) sim.state.fighters[0].invulnTimer = 100;
       if (t === 130) sim.dash(1, -1, 0.3);
     },
   },
@@ -200,6 +209,76 @@ export const SCENES: Scene[] = [
         if (a.top < 150) { a.top += 0.35; a.bottom -= 0.35; }
       }
       sim.move[0].x = Math.sin(t / 25) * 0.4; sim.move[1].y = Math.cos(t / 30) * 0.4;
+    },
+  },
+  {
+    id: 'heat', label: 'Heat rally 0→4', ticks: 330,
+    look: 'Each return heats the ball up: one more orbiting spark per level, a bigger whiter glow and trail with a pulse on every heat-up. At heat 4 it flickers, sheds sparks and has a hot halo. When it finally hits blue, the heat resets with a blue-white cool-down puff.',
+    setup(sim) {
+      place(sim, 0, 360, 450, 1); place(sim, 1, 1240, 450, -1);
+      ballAt(sim, 360 + FOOT_REACH, 450);
+    },
+    script(sim, t, mem) {
+      sim.move[0].y = Math.sin(t / 22) * 0.35; sim.move[1].y = -Math.sin(t / 19) * 0.35;
+      mem.kicks ??= 0;
+      if (t === 10) { sim.kick(0, 1, 0.05, 0.3); mem.kicks = 1; }
+      if (t > 10 && mem.kicks < 5) {
+        const who = sim.state.ball.owner === 0 ? 1 : 0;
+        if (returnIfClose(sim, who, mem.kicks % 2 ? 40 : -40, 0.3)) mem.kicks++;
+      }
+    },
+  },
+  {
+    id: 'phase', label: 'Phase dash through a ball', ticks: 220,
+    look: 'Blue fires at orange; orange phase-dashes straight into it: the body goes see-through and jittery inside a shimmering bubble with a long pale ghost streak, and ripples mark the ball passing through. Afterwards orange is winded for a long moment (hunched, dim, panting puffs). Later blue does a normal dash for comparison: short trail, no ghosting, brief slump.',
+    setup(sim) {
+      place(sim, 0, 420, 450, 1); place(sim, 1, 1150, 450, -1);
+      ballAt(sim, 1150 - FOOT_REACH, 450);
+    },
+    script(sim, t, mem) {
+      if (t === 10) sim.kick(1, -1, 0, 0.45);
+      const b = sim.state.ball, f = sim.state.fighters[0];
+      if (!mem.phased && b.owner === 1 && b.pos.x - f.pos.x < 190) { mem.phased = 1; sim.phaseDash(0, 1, 0); }
+      if (t === 150) sim.dash(1, 0, -1);
+    },
+  },
+  {
+    id: 'winded', label: 'Winded = punish window', ticks: 230,
+    look: 'Orange burns a phase dash away from nothing and ends up winded (hunched, dim, puffing, moving slowly). Blue sees it, charges and punishes with a hit.',
+    setup(sim) {
+      place(sim, 0, 640, 520, 1); place(sim, 1, 1150, 420, -1);
+      ballAt(sim, 1150 - FOOT_REACH, 420);
+    },
+    script(sim, t) {
+      if (t === 10) sim.phaseDash(0, 0.3, -1);
+      sim.move[0].x = t > 30 ? 0.6 : 0;
+      if (t === 34) { sim.aimAt(1, sim.state.fighters[0].pos.x, sim.state.fighters[0].pos.y); sim.startCharge(1); }
+      if (t === 72) {
+        const b = sim.state.ball.pos, f = sim.state.fighters[0].pos;
+        sim.kick(1, f.x - b.x, f.y - b.y, 0.6);
+      }
+    },
+  },
+  {
+    id: 'finalrush', label: 'Final Rush', ticks: 300,
+    look: 'An amber flash around the screen edges, then the walls turn amber (not sudden-death red), pulse and close in. Every kick now carries at least heat 1 (one orbiting spark).',
+    setup(sim) {
+      place(sim, 0, 420, 450, 1); place(sim, 1, 1180, 450, -1);
+      ballAt(sim, 420 + FOOT_REACH, 450);
+    },
+    script(sim, t, mem) {
+      if (t === 10) sim.startFinalRush();
+      if (t > 30) {
+        const a = sim.state.arena;
+        if (a.left < 200) { a.left += 0.5; a.right -= 0.5; }
+        if (a.top < 120) { a.top += 0.3; a.bottom -= 0.3; }
+      }
+      mem.kicks ??= 0;
+      if (t === 40) { sim.kick(0, 1, 0.1, 0.15); mem.kicks = 1; }
+      if (t > 40 && mem.kicks < 4) {
+        const who = sim.state.ball.owner === 0 ? 1 : 0;
+        if (returnIfClose(sim, who, mem.kicks % 2 ? 50 : -50, 0.15)) mem.kicks++;
+      }
     },
   },
 ];

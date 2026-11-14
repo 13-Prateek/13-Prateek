@@ -25,6 +25,11 @@ export class BallView {
   private readonly core: Sprite;
   private readonly seam: Sprite;
   private readonly holdRing: Sprite;
+  private readonly heatHalo: Sprite;
+  private readonly heatPips: Sprite[] = [];
+  private heatPulse = 0;
+  private heatSparkAcc = 0;
+  private heatNow = 0;
   private readonly trail: Sprite[] = [];
   private readonly hx = new Float32Array(HIST);
   private readonly hy = new Float32Array(HIST);
@@ -67,8 +72,21 @@ export class BallView {
     this.core.anchor.set(0.5);
     this.seam = new Sprite(tx.limb);
     this.seam.anchor.set(0.5);
+    this.heatHalo = new Sprite(tx.ringSoft);
+    this.heatHalo.anchor.set(0.5);
+    this.heatHalo.blendMode = 'add';
+    this.heatHalo.visible = false;
     this.body.addChild(this.core, this.seam);
-    this.root.addChild(this.glow, this.ring, this.holdRing, this.body);
+    this.root.addChild(this.heatHalo, this.glow, this.ring, this.holdRing, this.body);
+    // heat pips: one small orbiting spark per heat level (count readable at a glance)
+    for (let i = 0; i < FX.HEAT_MAX; i++) {
+      const p = new Sprite(tx.disc);
+      p.anchor.set(0.5);
+      p.blendMode = 'add';
+      p.visible = false;
+      this.heatPips.push(p);
+      this.root.addChild(p);
+    }
   }
 
   /** Squash along `nx, ny` (a wall normal or kick direction), amount 0..1. */
@@ -79,6 +97,12 @@ export class BallView {
   }
 
   resetTrail(): void { this.filled = 0; }
+
+  /** Glow surge when heat goes up (set by VFX on the `heat` event). */
+  heatUp(): void { this.heatPulse = 1; }
+
+  /** Current drawn heat level (0..HEAT_MAX). */
+  get heat(): number { return this.heatNow; }
 
   private ownerColor(b: BallState, state: Readonly<MatchState>): number {
     if (b.element && (b.mode !== 'neutral')) return ELEMENT_COLOR[b.element];
@@ -99,6 +123,12 @@ export class BallView {
     const col = this.ownerColor(b, state);
     this.colorNow = col;
     this.flash = Math.max(0, this.flash - dt);
+    this.heatPulse = Math.max(0, this.heatPulse - dt * 3);
+    // rally heat: owner colour stays on the ring; glow + trail shift toward white-gold as it rises
+    const heat = live ? Math.max(0, Math.min(FX.HEAT_MAX, Math.round(b.heat ?? 0))) : 0;
+    this.heatNow = heat;
+    const hot = heat > 0 ? mixColor(col, FX.HEAT_COLOR, 0.07 * heat) : col;
+    const flicker = heat >= FX.HEAT_MAX ? 1 + 0.1 * Math.sin(this.time * 47) * Math.sin(this.time * 13) : 1;
 
     // history for the trail (real time so the trail freezes in hitstop)
     if (!frozen) {
@@ -115,14 +145,14 @@ export class BallView {
     /* glow + ring */
     const breathe = 0.5 + 0.5 * Math.sin(this.time * 2.2);
     if (live) {
-      this.glow.tint = col;
-      this.glow.alpha = 0.75;
-      this.glow.scale.set((r * 6.5) / 128);
+      this.glow.tint = hot;
+      this.glow.alpha = Math.min(1, 0.75 + 0.05 * heat + 0.25 * this.heatPulse);
+      this.glow.scale.set((r * (6.5 + 0.9 * heat + 3 * this.heatPulse) * flicker) / 128);
       this.ring.visible = true;
       this.ring.tint = col;
-      const rp = 0.5 + 0.5 * Math.sin(this.time * 18);
+      const rp = 0.5 + 0.5 * Math.sin(this.time * (18 + 7 * heat));
       this.ring.alpha = 0.55 + 0.35 * rp;
-      this.ring.scale.set((r * 2 * (1.45 + 0.1 * rp)) / 256);
+      this.ring.scale.set((r * 2 * (1.45 + 0.1 * rp + 0.08 * heat)) / 256);
     } else {
       this.glow.tint = 0xdfe8ff;
       this.glow.alpha = 0.3 + 0.12 * breathe;
@@ -130,6 +160,26 @@ export class BallView {
       this.ring.visible = false;
     }
     if (b.mode === 'super') this.glow.scale.set((r * 9) / 128);
+
+    /* heat halo (heat 2+) and orbiting pips */
+    if (heat >= 2) {
+      this.heatHalo.visible = true;
+      this.heatHalo.tint = col; // owner colour: whose ball it is stays readable even at max heat
+      this.heatHalo.alpha = (0.22 * (heat - 1)) * (0.75 + 0.25 * Math.sin(this.time * 9)) * flicker;
+      this.heatHalo.scale.set((r * 2 * (2.4 + 0.5 * heat)) / 256);
+      this.heatHalo.rotation += dt * 2;
+    } else this.heatHalo.visible = false;
+    const orbit = r * (2.3 + 0.12 * heat);
+    const spin = this.time * (3 + 1.5 * heat);
+    for (let i = 0; i < FX.HEAT_MAX; i++) {
+      const p = this.heatPips[i];
+      if (i >= heat) { p.visible = false; continue; }
+      const a = spin + (i * Math.PI * 2) / heat;
+      p.visible = true;
+      p.position.set(Math.cos(a) * orbit, Math.sin(a) * orbit);
+      p.tint = heat >= FX.HEAT_MAX ? 0xffffff : FX.HEAT_COLOR;
+      p.scale.set((heat >= FX.HEAT_MAX ? 12 : 10) / 60);
+    }
 
     /* hold ring while trapped */
     if (b.heldBy !== null) {
@@ -163,7 +213,8 @@ export class BallView {
     }
 
     /* trail: points sampled back in time, so its length grows with speed */
-    const strength = live ? Math.min(1, Math.max(0.15, (speed - BALL_LIVE_MIN_SPEED * 0.5) / (FX.TRAIL_FULL_SPEED - BALL_LIVE_MIN_SPEED * 0.5))) : 0;
+    const strength = live ? Math.min(1, 0.12 * heat + Math.max(0.15, (speed - BALL_LIVE_MIN_SPEED * 0.5) / (FX.TRAIL_FULL_SPEED - BALL_LIVE_MIN_SPEED * 0.5))) : 0;
+    const trailSize = 1 + 0.13 * heat;
     let k = this.head, steps = 0;
     for (let i = 0; i < FX.TRAIL_POINTS; i++) {
       const s = this.trail[i];
@@ -180,9 +231,10 @@ export class BallView {
       const f = 1 - i / FX.TRAIL_POINTS;
       s.visible = true;
       s.position.set(px, py);
-      s.tint = i < 2 ? mixColor(col, 0xffffff, 0.4) : col;
+      // hot head of the trail grows with heat (white-gold), tail keeps the owner colour
+      s.tint = i < 2 ? mixColor(hot, 0xffffff, 0.3) : i < 2 + heat * 2 ? hot : col;
       s.alpha = strength * f * 0.85;
-      s.scale.set((r * 2.6 * (0.35 + 0.65 * f)) / 128 * 1.6);
+      s.scale.set((r * 2.6 * (0.35 + 0.65 * f) * trailSize) / 128 * 1.6);
     }
 
     /* element particles from the ball */
@@ -200,6 +252,18 @@ export class BallView {
         else this.parts.spawn(PKind.Dot, x + ox, y + oy, bvx * 0.5 + rrange(-30, 30), bvy * 0.5 + rrange(-30, 30), 0.6, rrange(10, 16), 18, c, 1.5, 0.5);
       }
     } else this.partAcc = 0;
+
+    /* heat 3+: the ball sheds hot sparks */
+    if (heat >= 3 && !frozen) {
+      this.heatSparkAcc += fxDt * (heat >= FX.HEAT_MAX ? 70 : 25);
+      while (this.heatSparkAcc >= 1) {
+        this.heatSparkAcc -= 1;
+        const a = rrange(0, 6.283);
+        const sp = rrange(80, 260);
+        this.parts.spawn(PKind.Streak, x + Math.cos(a) * r, y + Math.sin(a) * r, Math.cos(a) * sp - b.vel.x * 0.2, Math.sin(a) * sp - b.vel.y * 0.2,
+          rrange(0.15, 0.3), rrange(8, 13), 3, rnd() < 0.5 ? hot : col, 3, 1);
+      }
+    } else this.heatSparkAcc = 0;
   }
 
   get color(): number { return this.colorNow; }

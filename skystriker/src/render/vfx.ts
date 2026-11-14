@@ -17,6 +17,8 @@ export interface ScreenFx {
   shockwave(x: number, y: number, strength: number): void;
   chroma(seconds: number): void;
   slowmo(seconds: number): void;
+  /** Glow around the screen edges (Final Rush). */
+  edgeFlash(color: number, alpha: number, seconds: number): void;
 }
 
 const NUMBERS = 8;
@@ -315,6 +317,71 @@ export class Vfx {
         this.ring(f.pos.x, f.pos.y, c, 30, 360, 0.5, 1, true);
         this.cam.zoomPunch(0.08, f.pos.x, f.pos.y, 0.3);
         this.cam.addTrauma(0.4);
+        break;
+      }
+      case 'heat': {
+        const b = state.ball;
+        // read the owner from state: the heat event arrives in the same tick as the kick that changed it
+        const col = b.element ? ELEMENT_COLOR[b.element] : b.owner !== null ? this.heroColor(state, b.owner) : 0xffffff;
+        if (e.level <= 0) {
+          // cool-down puff: steam + a soft blue-white ring, the danger is gone
+          this.ring(e.pos.x, e.pos.y, 0xa9c8ff, 20, 90, 0.45, 0.55, true);
+          this.burst(e.pos.x, e.pos.y, 12, 0xc4cbe0, 0x9fb4ff, 40, 160, 0, Math.PI, 0.7, 22, PKind.Dot, 2);
+          this.burst(e.pos.x, e.pos.y, 6, 0xffffff, 0xa9c8ff, 60, 140, -Math.PI / 2, 0.6, 0.5, 10, PKind.Streak, 1.5);
+          break;
+        }
+        const lv = Math.min(FX.HEAT_MAX, e.level);
+        const hot = mixColor(col, FX.HEAT_COLOR, 0.1 + 0.1 * lv);
+        this.ball.heatUp();
+        this.ball.flash = 0.05;
+        this.ring(e.pos.x, e.pos.y, hot, 16, 50 + 22 * lv, 0.25, 0.95);
+        this.ring(e.pos.x, e.pos.y, 0xffffff, 10, 30 + 14 * lv, 0.18, 0.8, false, 0.03);
+        this.burst(e.pos.x, e.pos.y, 6 + 5 * lv, hot, 0xffffff, 200, 420 + 140 * lv, 0, Math.PI, 0.25, 10 + 2 * lv);
+        if (lv >= FX.HEAT_MAX) {
+          // max heat: the ball becomes a hazard
+          this.ring(e.pos.x, e.pos.y, col, 20, 220, 0.45, 0.9, true, 0.04);
+          this.glowFlash(e.pos.x, e.pos.y, hot, 200, 0.2, 0.7);
+          this.screen.chroma(0.07);
+          this.cam.addTrauma(0.15);
+        }
+        break;
+      }
+      case 'phaseDash': {
+        const f = state.fighters[e.player];
+        const col = mixColor(this.heroColor(state, e.player), FX.PHASE_COLOR, 0.55);
+        // implosion: the body "drops out of phase"
+        this.ring(e.pos.x, e.pos.y, col, 95, 22, 0.22, 0.95);
+        this.ring(e.pos.x, e.pos.y, 0xffffff, 60, 14, 0.16, 0.7, false, 0.02);
+        const a = Math.atan2(e.dir.y, e.dir.x);
+        // scanline streaks fanned across the dash line
+        for (let i = -2; i <= 2; i++) {
+          const ox = -e.dir.y * i * 14, oy = e.dir.x * i * 14;
+          this.add.spawn(this.tx.streak, e.pos.x + ox - e.dir.x * 20, e.pos.y + oy - e.dir.y * 20, a, 1.2, 0.6, 4.5, 0.35, 0.85, 0, 0.3, col, 3, Math.abs(i) * 0.015);
+        }
+        this.burst(f.pos.x, f.pos.y, 14, 0xffffff, col, 80, 260, a + Math.PI, 1.3, 0.35, 8, PKind.Dot, 3);
+        break;
+      }
+      case 'winded': {
+        const f = state.fighters[e.player];
+        const sx = f.facing.x >= 0 ? 1 : -1;
+        // a heavy "huff" from the head
+        this.burst(f.pos.x + sx * 12, f.pos.y - 44, 7, 0xc4cbe0, 0x8a93b8, 40, 130, sx > 0 ? -0.5 : Math.PI + 0.5, 0.7, 0.6, 20, PKind.Dot, 2.5);
+        break;
+      }
+      case 'finalRush': {
+        this.arena.pulse = 1;
+        this.screen.edgeFlash(FX.WALL_FINAL_RUSH, 0.9, 0.8);
+        this.ring(800, 450, FX.WALL_FINAL_RUSH, 80, 950, 0.7, 0.45, true);
+        this.cam.addTrauma(0.22);
+        break;
+      }
+      case 'bump': {
+        this.ring(e.pos.x, e.pos.y, 0xdfe8ff, 14, 40, 0.18, 0.4);
+        break;
+      }
+      case 'noAura': {
+        const f = state.fighters[e.player];
+        this.burst(f.pos.x, f.pos.y - 10, 8, 0x6b7290, 0x9aa6c8, 60, 180, 0, Math.PI, 0.25, 8, PKind.Dot, 3);
         break;
       }
       case 'auraBar': {
