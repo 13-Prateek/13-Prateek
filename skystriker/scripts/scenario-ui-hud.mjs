@@ -80,7 +80,35 @@ try {
   await shot('final', 400, '08-final-round');
   await shot('sd', 500, '09-sudden-death');
   await shot('super', 350, '10-super-banner');
-  await shot('pause', 300, '11-pause');
+  await shot('pause', 300, '11-pause-controls');
+  const ctl = await page.$$eval('.ss-controls tr', (rows) => rows.map((r) => r.textContent));
+  const pd = ctl.find((r) => r.includes('Phase Dash'));
+  if (!pd || !pd.includes('Q') || !pd.includes('B')) fails.push(`pause controls missing Phase Dash Q / B: ${pd}`);
+  if (!ctl.some((r) => r.includes('Kick') && r.includes('Left click') && r.includes('J') && r.includes('RT'))) fails.push('pause controls missing kick row');
+  if ((await page.$$('.ss-rule')).length < 4) fails.push('pause rules missing');
+
+  // Pressure pass HUD states.
+  const waitCallout = (txt) => page.waitForFunction((t) => [...document.querySelectorAll('.ss-callout')].some((c) => c.textContent === t), txt, { timeout: 6000, polling: 16 }).then(() => true, () => false);
+  await page.evaluate(() => window.__hudDev.scene('noaura'));
+  const flashed = await page.waitForSelector('.ss-panel.p1 .ss-aurarow.noaura', { timeout: 4000 }).then(() => true, () => false);
+  await page.waitForTimeout(90);
+  await page.screenshot({ path: 'playtest-shots/ui-13-no-aura-flash.png' });
+  if (!flashed) fails.push('noAura did not flash the P1 meter');
+  if ((await text('.ss-panel.p2 .ss-phase')) !== 'PHASE READY') fails.push('P2 (175 aura) should read PHASE READY');
+  if ((await text('.ss-panel.p1 .ss-phase')) !== 'PHASE') fails.push('P1 (30 aura) should not read ready');
+  if ((await page.$$('.ss-panel.p1 .ss-notch')).length !== 3) fails.push('expected a Phase Dash notch on each aura bar');
+
+  await page.evaluate(() => window.__hudDev.scene('heat'));
+  if (!(await waitCallout('MAX HEAT!'))) fails.push('MAX HEAT! callout missing at heat 4');
+  await page.waitForTimeout(250);
+  await page.screenshot({ path: 'playtest-shots/ui-14-max-heat.png' });
+
+  await page.evaluate(() => window.__hudDev.scene('rush'));
+  if (!(await waitCallout('FINAL RUSH!'))) fails.push('FINAL RUSH! callout missing');
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: 'playtest-shots/ui-15-final-rush.png' });
+  if (!(await page.$('.ss-timer.rush'))) fails.push('timer not in Final Rush style');
+  if ((await text('.ss-round')) !== 'FINAL RUSH') fails.push('label under timer should read FINAL RUSH');
 
   // Resize: HUD must stay inside the letterboxed world.
   await page.setViewportSize({ width: 1000, height: 900 });
