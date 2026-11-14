@@ -13,7 +13,7 @@ import {
 import { elementAdvantage } from '../shared/heroes';
 import type { FighterState, GameEvent, InputFrame, MatchState, PlayerId } from '../shared/types';
 import { lerp, norm } from '../shared/vec';
-import { footTouches, isPerfect, kickBall, releaseBall } from './kick';
+import { footTouches, isPerfect, kickBall, releaseBall, setHeat } from './kick';
 import { addHitstop, bodyOverlap, callout, copy, dangerRaw, gainAura, heroOf, isEnemyLive, kickPower, moveVec } from './util';
 
 export interface TickCtx {
@@ -117,6 +117,7 @@ function hit(ctx: TickCtx, victim: FighterState): void {
     type: 'hit', target: victim.id, attacker: attackerId, pos: contact, damage, speed, bank,
     combo: victim.comboAgainst, element: b.element,
   });
+  setHeat(state, 0, events);
   if (bank >= 2) callout(events, 'DOUBLE BANK!', attackerId, 3);
   else if (bank === 1) callout(events, 'BANK SHOT!', attackerId, 2);
   if (victim.comboAgainst >= 2) callout(events, `${victim.comboAgainst}-HIT COMBO!`, attackerId, victim.comboAgainst >= 3 ? 3 : 2);
@@ -178,6 +179,7 @@ function clash(ctx: TickCtx): void {
   b.bounces = 0;
   b.cruise = 0;
   if (wasLive) events.push({ type: 'ballNeutral', pos: copy(b.pos) });
+  setHeat(state, 0, events);
 }
 
 /**
@@ -191,7 +193,9 @@ export function updateCloseCalls(ctx: TickCtx): void {
     const gap = Math.hypot(b.pos.x - f.pos.x, b.pos.y - f.pos.y) - FIGHTER_BODY_RADIUS - b.radius;
     const st = f.closeCall ?? 0;
     if (enemy && gap <= CLOSE_CALL_DISTANCE) {
-      if (st === 0) f.closeCall = 1;
+      // A Phase Dash is a paid dodge: it earns no close-call aura.
+      if ((f.phaseDashTimer ?? 0) > 0) f.closeCall = 2;
+      else if (st === 0) f.closeCall = 1;
       continue;
     }
     if (st === 1 && enemy) {

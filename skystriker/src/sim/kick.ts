@@ -1,6 +1,6 @@
 /** Kick toolkit: snap / power kick state machine, curve shots, perfect timing, trap & dribble. */
 import {
-  AURA_GAIN_KICK, AURA_GAIN_PERFECT, BALL_CRUISE_TICKS, CURVE_MIN_CHARGE, CURVE_MIN_CROSS, CURVE_MIN_MOVE, CURVE_SPIN,
+  AURA_GAIN_KICK, AURA_GAIN_PERFECT, BALL_CRUISE_TICKS, FINAL_RUSH_HEAT_FLOOR, HEAT_MAX, HEAT_SPEED_PER_LEVEL, CURVE_MIN_CHARGE, CURVE_MIN_CROSS, CURVE_MIN_MOVE, CURVE_SPIN,
   FIGHTER_BODY_RADIUS,
   HITSTOP_KICK, HITSTOP_PERFECT, HITSTOP_POWER_BONUS, KICK_ACTIVE_TICKS, KICK_CHARGE_FULL, KICK_CHARGE_START,
   KICK_RECOVERY_TICKS, PERFECT_SPEED_MULT, POWER_KICK_MAX_SPEED, SIM_DT, SNAP_KICK_SPEED,
@@ -79,10 +79,14 @@ export function isPerfect(b: BallState, f: FighterState, window: number): boolea
 /** The kick connects: the ball becomes the kicker's, flying along the facing (aim). */
 export function kickBall(state: MatchState, f: FighterState, move: Vec2, events: GameEvent[], perfect: boolean): void {
   const b = state.ball;
+  // Rally Heat: returning the other player's live ball heats it up; Final Rush sets a floor.
+  const isReturn = isEnemyLive(b, f);
+  let heat = Math.min(HEAT_MAX, (b.heat ?? 0) + (isReturn ? 1 : 0));
+  if (state.finalRush) heat = Math.max(heat, FINAL_RUSH_HEAT_FLOOR);
   if (b.heldBy !== null) releaseBall(state, state.fighters[b.heldBy], events, b.heldBy !== f.id);
   const dir = norm(f.facing);
   const sd = state.suddenDeath ? SUDDEN_DEATH_BALL_MULT : 1;
-  let speed = lerp(SNAP_KICK_SPEED, POWER_KICK_MAX_SPEED, f.charge) * sd;
+  let speed = lerp(SNAP_KICK_SPEED, POWER_KICK_MAX_SPEED, f.charge) * sd * (1 + HEAT_SPEED_PER_LEVEL * heat);
   if (perfect) speed *= PERFECT_SPEED_MULT;
   speed = Math.min(speed, maxBallSpeed(state));
 
@@ -114,6 +118,7 @@ export function kickBall(state: MatchState, f: FighterState, move: Vec2, events:
     b.pos = { x: f.pos.x + n.x * minD, y: f.pos.y + n.y * minD };
   }
 
+  setHeat(state, heat, events);
   const charge = f.charge;
   f.kickPhase = 'recovery';
   f.kickTimer = KICK_RECOVERY_TICKS;
@@ -169,6 +174,15 @@ export function updateTrap(state: MatchState, f: FighterState, inp: InputFrame, 
   b.cruise = 0;
   f.trapping = true;
   events.push({ type: 'trap', player: f.id, pos: copy(b.pos) });
+  setHeat(state, 0, events);
+}
+
+/** Set the ball's rally Heat; emits `heat` whenever the level changes (resets included). */
+export function setHeat(state: MatchState, level: number, events: GameEvent[]): void {
+  const b = state.ball;
+  if ((b.heat ?? 0) === level) return;
+  b.heat = level;
+  events.push({ type: 'heat', level, pos: copy(b.pos) });
 }
 
 /** A trapped ball rides the holder's foot; held too long, it pops loose (forced release). */

@@ -29,6 +29,7 @@ function chaser(s: MatchState, id: PlayerId, r: () => number): InputFrame {
     trap: near && r() < 0.15,
     dash: r() < 0.03,
     infuse: r() < 0.01,
+    phaseDash: r() < 0.01,
   });
 }
 

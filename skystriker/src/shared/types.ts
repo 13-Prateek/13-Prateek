@@ -114,6 +114,8 @@ export interface FighterState {
   winded?: number;
   /** Pressure pass (lead): ticks left of the current PHASE dash (invulnerable, ghosted). 0/undefined = not phasing. */
   phaseDashTimer?: number;
+  /** (sim-internal, added by sim) Speed multiplier while `winded` (free dash vs Phase Dash). */
+  windedMult?: number;
 }
 
 export type BallMode = 'neutral' | 'live' | 'super';
