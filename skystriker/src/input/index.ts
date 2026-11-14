@@ -32,6 +32,8 @@ export function createKeyboardInput(target: Window = window): KeyboardInput {
   const t = target as InputTarget;
   const held = new Set<Action>();
   const mouseHeld = new Set<Action>();
+  /** Pressed since the last sample: a tap shorter than one frame still reaches the sim once. */
+  const tapped = new Set<Action>();
   const menuListeners = new Set<(a: MenuAction) => void>();
   let cursor: Vec2 | null = null; // client (screen) px
   let aimSource: 'mouse' | 'pad' = 'mouse';
@@ -50,6 +52,7 @@ export function createKeyboardInput(target: Window = window): KeyboardInput {
     device = 'keyboard';
     if (isMenuAction(a)) { if (!e.repeat) emitMenu(a); return; }
     held.add(a);
+    tapped.add(a);
   };
   const onKeyUp = (e: KeyboardEvent) => {
     const a = KEY_BINDINGS[e.code];
@@ -59,6 +62,7 @@ export function createKeyboardInput(target: Window = window): KeyboardInput {
     const a = MOUSE_BINDINGS[e.button];
     if (!a) return;
     mouseHeld.add(a);
+    tapped.add(a);
     device = 'keyboard';
     if (e.clientX !== undefined) { cursor = { x: e.clientX, y: e.clientY }; aimSource = 'mouse'; }
   };
@@ -77,7 +81,7 @@ export function createKeyboardInput(target: Window = window): KeyboardInput {
     }
   };
   const onContextMenu = (e: Event) => e.preventDefault();
-  const onBlur = () => { held.clear(); mouseHeld.clear(); };
+  const onBlur = () => { held.clear(); mouseHeld.clear(); tapped.clear(); };
 
   const getPad = (): PadInput | null => {
     const nav = t.navigator;
@@ -123,7 +127,8 @@ export function createKeyboardInput(target: Window = window): KeyboardInput {
       }
       lastAim = aim;
 
-      const all = mouseHeld.size ? new Set<Action>([...held, ...mouseHeld]) : held;
+      const all = mouseHeld.size || tapped.size ? new Set<Action>([...held, ...mouseHeld, ...tapped]) : held;
+      tapped.clear();
       return frameFromActions(all, aim, pad);
     },
     onMenu(cb) {

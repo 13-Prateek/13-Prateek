@@ -120,6 +120,23 @@ describe('createKeyboardInput (GDD §10 map)', () => {
     inp.destroy();
   });
 
+  it('a tap that starts and ends between two samples still registers exactly once', () => {
+    const w = fakeWindow();
+    const inp = createKeyboardInput(w);
+    const s = stateWithP1At(400, 450);
+    w.dispatchEvent(key('keydown', 'KeyJ'));
+    w.dispatchEvent(key('keyup', 'KeyJ'));
+    w.dispatchEvent(mouse('mousedown', 900, 450, 2));
+    w.dispatchEvent(mouse('mouseup', 900, 450, 2));
+    const f = inp.sample(s, 0);
+    expect(f.kick).toBe(true);
+    expect(f.trap).toBe(true);
+    const g = inp.sample(s, 0);
+    expect(g.kick).toBe(false);
+    expect(g.trap).toBe(false);
+    inp.destroy();
+  });
+
   it('left click kicks, right click traps, and the context menu is suppressed', () => {
     const w = fakeWindow();
     const inp = createKeyboardInput(w);
